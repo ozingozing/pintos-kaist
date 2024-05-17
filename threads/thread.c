@@ -269,14 +269,9 @@ thread_unblock (struct thread *t) {
 
 void
 preemption (void) {
-	struct list_elem *e;
-	struct thread *t;
-
 	if(list_empty(&ready_list) || thread_current() == idle_thread) // 현재 쓰레드가 idle이거나 ready리스트가 비어있다면 우선순위 비교 X
 		return;
-	e = list_begin(&ready_list);
-	t = list_entry(e, struct thread, elem);
-	if(t->priority > thread_current()->priority) // 현재 쓰레드가 우선순위 내림차순으로 정렬된 ready리스트의 맨 앞의 우선순위와 비교
+	if(list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_current()->priority) // 현재 쓰레드가 우선순위 내림차순으로 정렬된 ready리스트의 맨 앞의 우선순위와 비교
 		thread_yield(); // 현재 쓰레드의 우선순위가 낮으면 양보
 }
 
@@ -728,68 +723,56 @@ donate_priority(struct thread *holder, struct thread *receiver)
 }
 
 void donate_priority_nested(struct thread *t)
-{
-	struct thread *holder, *current_thread = t;
-
-	int deapth = 0;
+{				 //현재쓰레드 앞에 락 들고 있는 놈 // 현재쓰레드
+	struct thread *lock_holder, *current_thread = t;
 
 	while (current_thread->wait_on_lock != NULL)
 	{
-		holder = current_thread->wait_on_lock->holder;
-		
-		if(holder->priority > t->priority)
+		lock_holder = current_thread->wait_on_lock->holder;
+
+		if(lock_holder->priority > current_thread->priority)
 			break;
-		holder->priority = t->priority;
-		current_thread = holder;
+		lock_holder->priority = t->priority;
+		current_thread = lock_holder;
 	}
-	
-	update_priority(current_thread);
+	update_priority(current_thread);	
 }
 
 void remove_donation(struct lock *lock)
 {
 	enum intr_level old_level;
-	struct thread *holder, *current_thread;
-	struct list_elem *curr_elem;
+	struct list_elem *current_thread_d_elem = list_begin(&thread_current()->donations);
+ 
+	ASSERT(thread_current() == lock->holder)
 
-	holder = thread_current();
-	ASSERT(lock->holder == holder);
-	if(list_empty(&holder->donations))
-		return;
-
-	curr_elem = list_front(&holder->donations);
 	old_level = intr_disable();
-
-	while (curr_elem != list_tail(&holder->donations))
+	while (current_thread_d_elem != list_tail(&thread_current()->donations))
 	{
-		current_thread = list_entry(curr_elem, struct thread, d_elem);
-		if(current_thread->wait_on_lock == lock)
-			list_remove(curr_elem);
-		curr_elem = list_next(curr_elem);
+		if(list_entry(current_thread_d_elem, struct thread, d_elem)->wait_on_lock == lock)
+			list_remove(current_thread_d_elem);
+		current_thread_d_elem = list_next(current_thread_d_elem);
 	}
-	
-	update_priority(holder);
+	update_priority(thread_current());
 	intr_set_level(old_level);
 }
 
 
 void update_priority(struct thread *t)
 {
-	struct thread *max_thread;
-	struct list_elem *max_elem;
-
 	if(!list_empty(&t->donations))
 	{
-		max_elem = list_max(&t->donations, donation_priority_more, NULL);
-		max_thread = list_entry(max_elem, struct thread, d_elem);
+		struct thread *have_max_priority_thread 
+			= list_entry(list_max(&t->donations, priority_more, NULL), 
+						struct thread, 
+						d_elem);
 
-		if(t->origin_priority < max_thread->priority)
-			t->priority = max_thread->priority;
+		if(t->origin_priority < have_max_priority_thread->priority)
+			t->priority = have_max_priority_thread->priority;
 		else
-			t->priority = t->origin_priority;
+			t->priority = t->origin_priority; 
 	}
-	else 
+	else
 		t->priority = t->origin_priority;
-	
+
 	preemption();
 }

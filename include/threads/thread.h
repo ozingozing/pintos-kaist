@@ -162,7 +162,7 @@ bool donation_priority_more (const struct list_elem *a_, const struct list_elem 
 /* 우선순위를 기부 */
 void donate_priority(struct thread *holder, struct thread *receiver);
 /* 연쇄적인 priority chain priority 업데이트 */
-void donate_priority_nested(struct thread *t);
+void donate_priority_nested(struct thread *current_thread);
 /* 락을 가지고 있던 쓰레드가 release되면 그 쓰레드 donations리스트를 날려줘야지 */
 void remove_donation(struct lock *lock);
 /* 현재 우선순위를 origin priority업데이트 */

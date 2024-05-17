@@ -406,6 +406,13 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	if (!list_empty (&cond->waiters))
 	{
       list_sort(&cond->waiters, cond_priority_more, NULL);
+      //Debug
+      // struct list_elem *elem1 = list_begin(&cond->waiters);   
+      // while (elem1 != list_tail(&cond->waiters))
+      // {
+      //    printf("Thread Name : %d\n", list_entry(list_begin(&list_entry(elem1, struct semaphore_elem, elem)->semaphore.waiters), struct thread, elem)->priority);
+      //    elem1 = list_next(elem1);
+      // }
       sema_up (&list_entry (list_pop_front (&cond->waiters),
 					struct semaphore_elem, elem)->semaphore);
    }

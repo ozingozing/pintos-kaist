@@ -400,6 +400,16 @@ thread_get_wakeup_tick (void) {
    blocks.  After that, the idle thread never appears in the
    ready list.  It is returned by next_thread_to_run() as a
    special case when the ready list is empty. */
+
+/* 	아이들 스레드. 다른 스레드가 실행 준비가 되어 있지 않을 때 실행됩니다.
+
+   	아이들 스레드는 처음에 thread_start()에 의해 준비 리스트에 추가됩니다.
+	초기에 한 번 스케줄링되며, 이 때 아이들 스레드를 초기화하고, 
+	thread_start()가 계속될 수 있도록 전달된 세마포어를 "up" 합니다. 
+	그리고 즉시 블록됩니다. 
+	그 후, 아이들 스레드는 준비 리스트에 나타나지 않습니다. 
+	준비 리스트가 비어 있을 때 특별한 경우로서 
+	next_thread_to_run()에 의해 반환됩니다. */
 static void
 idle (void *idle_started_ UNUSED) {
 	struct semaphore *idle_started = idle_started_;
@@ -424,6 +434,19 @@ idle (void *idle_started_ UNUSED) {
 
 		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
 		   7.11.1 "HLT Instruction". */
+		
+		/* 	인터럽트를 다시 활성화하고 다음 인터럽트를 기다립니다.
+
+   			`sti` 명령어는 다음 명령어가 완료될 때까지 인터럽트를 비활성화합니다. 
+			그래서 이 두 명령어는 원자적으로 실행됩니다. 
+			이 원자성은 중요합니다; 그렇지 않으면, 인터럽트가 다시 활성화되고 
+			다음 인터럽트가 발생하기를 기다리는 사이에 인터럽트가 처리될 수 있으며, 
+			최대 한 클록 틱의 시간이 낭비될 수 있습니다.
+
+   			참조: [IA32-v2a] "HLT", 
+			[IA32-v2b] "STI", 
+			[IA32-v3a] 7.11.1 "HLT Instruction". */
+
 		asm volatile ("sti; hlt" : : : "memory");
 	}
 }
@@ -722,18 +745,18 @@ donate_priority(struct thread *holder, struct thread *receiver)
 	intr_set_level(old_level);
 }
 
-void donate_priority_nested(struct thread *t)
+void donate_priority_nested(struct thread *current_thread)
 {				 //현재쓰레드 앞에 락 들고 있는 놈 // 현재쓰레드
-	struct thread *lock_holder, *current_thread = t;
+	struct thread *next_thread;
 
 	while (current_thread->wait_on_lock != NULL)
 	{
-		lock_holder = current_thread->wait_on_lock->holder;
+		next_thread = current_thread->wait_on_lock->holder;
 
-		if(lock_holder->priority > current_thread->priority)
+		if(next_thread->priority > current_thread->priority)
 			break;
-		lock_holder->priority = t->priority;
-		current_thread = lock_holder;
+		next_thread->priority = current_thread->priority;
+		current_thread = next_thread;
 	}
 	update_priority(current_thread);	
 }

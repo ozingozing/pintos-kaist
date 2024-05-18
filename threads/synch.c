@@ -69,14 +69,14 @@ sema_init (struct semaphore *sema, unsigned value) {
 	이것은 sema_down 함수입니다. */
 void
 sema_down (struct semaphore *sema) {
-	enum intr_level old_level;
-   struct tread *curr = thread_current();
-
 	ASSERT (sema != NULL);
 	ASSERT (!intr_context ());
 
+   enum intr_level old_level;
+   struct tread *curr = thread_current();
+
 	old_level = intr_disable ();
-	while (sema->value == 0) {
+	if (sema->value == 0) {
 		list_push_front(&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}
@@ -233,17 +233,18 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-   struct thread *curr_thread;
-   if(lock->holder != NULL)
+   struct thread *curr_thread = thread_current();
+   if(!thread_mlfqs)
    {
-      curr_thread = thread_current();
-      curr_thread->wait_on_lock = lock;
-      donate_priority(lock->holder, curr_thread);
+      if(lock->holder != NULL)
+      {
+         curr_thread->wait_on_lock = lock;
+         donate_priority(lock->holder, curr_thread);
+      }
    }
 
-
    sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+	lock->holder = curr_thread;
 }
 
 
@@ -288,14 +289,24 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
-   old_level = intr_disable();
-
-	sema_up (&lock->semaphore);
-
-   remove_donation(lock); // 현재 쓰레드의 donation을 반납
-
-	lock->holder = NULL;
+   
+   //먼저 세마업을 시키면 waiter_list중에 
+   //중요도가 제일 높은 놈이 바로 실행됨
+   sema_up (&lock->semaphore);
+   //그리고 나서야 donations_list에 현재락을 가진 쓰레드를 삭제해줘야함
+	old_level = intr_disable();
+   if(!thread_mlfqs)
+      remove_donation(lock);
+   /*
+   추가로 remove_donation을 먼저 때리면
+   현재 lock을 들고 있는 쓰레드 중요도가 바로 내려가서
+   따른 쓰레드가 꼽사리가 가능하기 때문에 세마업으로 급한놈 보낸 다음 
+   remove_donation(lock)(donations_list중에 현재 락을 가지고 있는 쓰레드 삭제)
+   이 함수를 때리는 게 서순이 맞음
+   */
    intr_set_level(old_level);
+   lock->holder = NULL;
+   
 }
 
 /* Returns true if the current thread holds LOCK, false

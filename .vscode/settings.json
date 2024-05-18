@@ -6,6 +6,10 @@
         "tests.h": "c",
         "debug.h": "c",
         "stdio.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "fixed_point.h": "c",
+        "vaddr.h": "c",
+        "intrinsic.h": "c",
+        "palloc.h": "c"
     }
 }

@@ -11,6 +11,9 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+
+#include "threads/fixed_point.h"
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -33,12 +36,12 @@ static struct list ready_list;
 /* sleep 쓰레드 리스트 */
 static struct list sleep_list;
 
+/* 모든 리스트 관리 */
+static struct list all_list;	
 
 /* Thread destruction requests */
 static struct list destruction_req;
 
-//각 연산을 위한 lock
-//이것 또한 록...
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
@@ -61,6 +64,10 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
+
+//추가추가
+static real load_avg;
+/////////
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -128,6 +135,7 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init(&sleep_list);
 	list_init (&destruction_req);
+	list_init(&all_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -135,6 +143,7 @@ thread_init (void) {
 	initial_thread->wakeup_tick = -1;
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
+	list_push_front(&all_list, &initial_thread->all_elem);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -224,6 +233,9 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	if(name != "idle")
+		list_push_front(&all_list, &t->all_elem);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
@@ -262,16 +274,21 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered(&ready_list, &t->elem, priority_more, NULL); // 우선순위대로 쓰레드 레디 리스트에 삽입
 	t->status = THREAD_READY;
-
-	preemption();
+	if(!intr_context())
+		preemption();
 	intr_set_level (old_level);
 }
 
 void
 preemption (void) {
+	struct list_elem *e;
+	struct thread *t;
+
 	if(list_empty(&ready_list) || thread_current() == idle_thread) // 현재 쓰레드가 idle이거나 ready리스트가 비어있다면 우선순위 비교 X
 		return;
-	if(list_entry(list_begin(&ready_list), struct thread, elem)->priority > thread_current()->priority) // 현재 쓰레드가 우선순위 내림차순으로 정렬된 ready리스트의 맨 앞의 우선순위와 비교
+	e = list_begin(&ready_list);
+	t = list_entry(e, struct thread, elem);
+	if(t->priority > thread_current()->priority) // 현재 쓰레드가 우선순위 내림차순으로 정렬된 ready리스트의 맨 앞의 우선순위와 비교
 		thread_yield(); // 현재 쓰레드의 우선순위가 낮으면 양보
 }
 
@@ -318,6 +335,7 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
+	list_remove(&thread_current()->all_elem);
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }
@@ -332,8 +350,7 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-	if (curr != idle_thread)
-		list_insert_ordered(&ready_list, &curr->elem, priority_more, NULL);
+	list_insert_ordered(&ready_list, &curr->elem, priority_more, NULL);	
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -342,9 +359,14 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	struct thread *curr = thread_current (); // 현재 실행중인 쓰레드
-	curr->origin_priority = new_priority; // origin_priority 업데이트
-	
-	update_priority(curr); // 변경된 origin_priority와 도네이션 리스트 비교
+	if(!thread_mlfqs){
+		curr->origin_priority = new_priority; // origin_priority 업데이트
+		update_priority(curr); // 변경된 origin_priority와 도네이션 리스트 비교
+	}
+	else{
+		curr->priority = new_priority;
+		preemption();
+	}
 }
 
 /* Returns the current thread's priority. */
@@ -355,29 +377,87 @@ thread_get_priority (void) {
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) {
+thread_set_nice (int nice) {
 	/* TODO: Your implementation goes here */
+	thread_current()->nice = nice;
+	update_nice();
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	return fixed_to_nearest_integer(load_avg * 100);
+}
+
+real
+get_decay(){
+	real num1 = load_avg * 2;
+	real num2 = add_fixed_from_integer(num1, 1);
+	return divide_fixed(num1, num2);
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
-	/* TODO: Your implementation goes here */
-	return 0;
+	return fixed_to_nearest_integer(thread_current()->recent_cpu * 100);
+}
+
+void
+thread_set_load_avg(void){
+	enum intr_level old_level;
+	old_level = intr_disable();
+	int ready_threads = list_size(&ready_list);
+	if(thread_current() != idle_thread)
+		ready_threads++;
+
+	real fifty_nine, sixty, one, num1, num2;
+	fifty_nine = integer_to_fixed(59);
+	sixty = integer_to_fixed(60);
+	one = integer_to_fixed(1); 
+
+	num1 = divide_fixed(fifty_nine, sixty); 
+	num1 = multiple_fixed(num1, load_avg);
+	num2 = divide_fixed(one, sixty);
+	num2 *= ready_threads;
+	load_avg = num1 + num2;
+	intr_set_level(old_level);
+}
+
+void
+update_recent_cpu(){
+	struct thread *curr = thread_current();
+	real decay = get_decay();
+	real calulated = 0;
+	struct list_elem *e = list_begin(&all_list);
+
+	while(e != list_tail(&all_list)){
+		curr = list_entry(e, struct thread, all_elem);
+		calulated = multiple_fixed(decay, curr->recent_cpu);
+		calulated = add_fixed_from_integer(calulated, curr->nice);
+		curr->recent_cpu = calulated;
+		e = list_next(e);
+	}
+}
+
+int
+thread_set_recent_cpu_add_one(void)
+{
+	struct thread *curr;
+	if(thread_current() == idle_thread)
+		return;
+	curr = thread_current();
+	enum intr_level old_level;
+	old_level = intr_disable();
+	curr->recent_cpu = add_one_fixed(curr->recent_cpu);
+	intr_set_level(old_level);
 }
 
 void
@@ -475,6 +555,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->nice = 0;
+	t->recent_cpu = 0;
+	///////////////////////
 	t->magic = THREAD_MAGIC;
 
 	t->origin_priority = priority; // 원래의 우선순위 설정
@@ -668,14 +751,13 @@ void thread_sleep(int64_t end_tick){
 	ASSERT(cur != idle_thread);
 
 	old_level = intr_disable();
-	cur->wakeup_tick = end_tick; // 쓰레드에 종료틱 설정
+	cur->wakeup_tick = end_tick;
 
-	lock_acquire(&sleep_lock); // 슬립리스트는 공유 변수이니까 락 설정
+	lock_acquire(&sleep_lock);
+	list_insert_ordered(&sleep_list, &cur->elem, tick_less, NULL); 
+	lock_release(&sleep_lock); 
 
-	list_insert_ordered(&sleep_list, &cur->elem, tick_less, NULL); // 슬립리스트에 종료틱 오름차순으로 삽입
-	lock_release(&sleep_lock); // 슬립락 해제
-
-	thread_block(); // 현재 쓰레드 블록
+	thread_block();
 
 	intr_set_level(old_level);
 }
@@ -685,6 +767,8 @@ void thread_check_sleep_list(){
 	struct thread *t;
 	old_level = intr_disable();
 	int64_t ticks = timer_ticks();
+	
+
 	// lock_acquire(&sleep_lock);
     while (!list_empty(&sleep_list)) { // 슬립 리스트에서 꺠울 쓰레드 탐색
         t = list_entry(list_front(&sleep_list), struct thread, elem); // 슬립 리스트 맨 앞 쓰레드 조회
@@ -741,24 +825,27 @@ donate_priority(struct thread *holder, struct thread *receiver)
 		holder->priority = receiver->priority;
 	old_level = intr_disable();
 	list_push_front(&holder->donations, &receiver->d_elem);
-	donate_priority_nested(holder);
+	while (holder->wait_on_lock != NULL)
+	{
+		if(holder->wait_on_lock->holder->priority > holder->priority)
+			break;
+		holder->wait_on_lock->holder->priority = holder->priority;
+		holder = holder->wait_on_lock->holder;
+	}
+	update_priority(holder);
 	intr_set_level(old_level);
 }
 
 void donate_priority_nested(struct thread *current_thread)
-{				 //현재쓰레드 앞에 락 들고 있는 놈 // 현재쓰레드
-	struct thread *next_thread;
-
-	while (current_thread->wait_on_lock != NULL)
-	{
-		next_thread = current_thread->wait_on_lock->holder;
-
-		if(next_thread->priority > current_thread->priority)
-			break;
-		next_thread->priority = current_thread->priority;
-		current_thread = next_thread;
-	}
-	update_priority(current_thread);	
+{				 
+	// while (current_thread->wait_on_lock != NULL)
+	// {
+	// 	if(current_thread->wait_on_lock->holder->priority > current_thread->priority)
+	// 		break;
+	// 	current_thread->wait_on_lock->holder->priority = current_thread->priority;
+	// 	current_thread = current_thread->wait_on_lock->holder;
+	// }
+	// update_priority(current_thread);	
 }
 
 void remove_donation(struct lock *lock)
@@ -798,4 +885,23 @@ void update_priority(struct thread *t)
 		t->priority = t->origin_priority;
 
 	preemption();
+}
+
+void update_nice(void)
+{
+	struct list_elem *e;
+	struct thread *curr;
+	int calulated;
+	// printf("%d\n",thread_current()->priority);
+	for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e)){
+		curr = list_entry(e, struct thread, all_elem);
+		calulated = PRI_MAX - fixed_to_nearest_integer((curr->recent_cpu / 4)) - (curr->nice * 2);
+		if (calulated > 63)
+			calulated = PRI_MAX;
+		else if (calulated < PRI_MIN)
+			calulated = PRI_MIN;
+		curr->priority = calulated;
+		//  printf("%s: nice:%d priorrity:%d , ",curr->name, curr->nice, curr->priority);
+	}
+	// printf("\n");
 }

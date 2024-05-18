@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/fixed_point.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -111,14 +112,16 @@ struct thread {
 	int origin_priority; // 실제 오리진 우선순위
 	struct list donations; // 이 쓰레드에 우선순위를 기부하는 쓰레드들의 리스트
 	struct list_elem d_elem; // donations리스트의 elem
+	struct list_elem all_elem; //모든 리스트 관리
 	struct lock *wait_on_lock; // 대기중인 락
+	int nice;					//나이스한 녀석 nice지수가 높으면(양수) 양보 잘함 낮으면(음수) 양보 못함
+	real recent_cpu;			//최근에 CPU얼마나 썼는지 많이 쓰면 쓸 수록
 };
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
 void thread_init (void);
 void thread_start (void);
 
@@ -167,5 +170,13 @@ void donate_priority_nested(struct thread *current_thread);
 void remove_donation(struct lock *lock);
 /* 현재 우선순위를 origin priority업데이트 */
 void update_priority(struct thread *t);
+/* load_avg 1초마다 업데이트 용도 */
+void thread_set_load_avg(void);
+/* 1초마다 recent_cpu 업데이트 */
+void update_recent_cpu();
+/* 계산된 decay 가져오기 */
+real get_decay();
+/* 4틱 마다 모든 쓰레드 nice 재계산 */
+void update_nice();
 
 #endif /* threads/thread.h */

@@ -8,6 +8,9 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 
+//추가
+#include "threads/fixed_point.h"
+/////
 
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -142,11 +145,23 @@ timer_print_stats (void) {
 
 /* Timer interrupt handler. */
 /* 타이머 인터럽트 핸들러. */
-static void
+void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();
 	thread_check_sleep_list();
+	if(thread_mlfqs)
+	{
+		thread_set_recent_cpu_add_one();
+		if(timer_ticks() % TIMER_FREQ == 0)
+		{
+			thread_set_load_avg();
+			update_recent_cpu();
+		}
+
+		if(timer_ticks() % 4 == 0)
+			update_nice();
+	}
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

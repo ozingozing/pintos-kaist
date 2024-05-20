@@ -245,6 +245,23 @@ lock_acquire (struct lock *lock) {
 
    sema_down (&lock->semaphore);
 	lock->holder = curr_thread;
+   /*
+   donation리스트는 첫 쓰레드가
+   lock_aquire로 잠그고 들어가고
+   이후 다른 쓰레드가 그 락을 요청하면 list에 추가가 되는데
+   첫 쓰레드가 lock_release로 나가고 다음 쓰레드가 들어오면
+   그 쓰레드의 donation_list는 자기 이후 쓰레드를 가지고 있을지언정
+   같은 락을 쓰고싶어하는 기존의 우선순위가 낮은 다른쓰레드 들은 
+   리스트에 추가되어 있지 않음
+   그럼 문제가 뭐냐면 그 우선순위 낮은 쓰레드 뒤로 더 큰 우선순위의 쓰레드가
+   오게되면 현재 락을 잠그고 들어간 쓰레드의 donation_list에는 자기 뒤에 쓰레드만
+   들고있지 기존의 같은 락을 요구하는 우선순위가 낮은 다른 쓰레드들은 donation_list에 없음
+   그래서 현재 돌고있는 쓰레드도 release가 되면 자기 뒤에 쓰레드만 donation_list에 있기에
+   더 큰 우선순위가 있음에도 낮은 값을 찾아 갈 수가 있음
+   ==>그걸 방지하고자 donation_list를 업데이트!
+   */
+   if(!thread_mlfqs)
+      update_donation_list(lock);
 }
 
 

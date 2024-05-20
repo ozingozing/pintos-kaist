@@ -84,7 +84,6 @@ static void schedule (void);
 static tid_t allocate_tid (void);
 static void preemption (void);
 static bool tick_less (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
-
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
 
@@ -866,6 +865,21 @@ void remove_donation(struct lock *lock)
 	intr_set_level(old_level);
 }
 
+void update_donation_list(struct lock *_lock)
+{
+	if(list_empty(&_lock->semaphore.waiters))
+		return;
+	struct list_elem *e = list_begin(&_lock->semaphore.waiters);
+	enum intr_level old_level;
+	old_level = intr_disable();
+	while (e != list_tail(&_lock->semaphore.waiters))
+	{
+		if(list_entry(e, struct thread, d_elem)->wait_on_lock == _lock)
+			list_push_front(&thread_current()->donations, list_entry(e, struct thread, d_elem));	
+		e = list_next(e);
+	}
+	intr_set_level(old_level);
+}
 
 void update_priority(struct thread *t)
 {

@@ -179,4 +179,6 @@ real get_decay();
 /* 4틱 마다 모든 쓰레드 nice 재계산 */
 void update_nice();
 
+void update_donation_list(struct lock *_lock);
+
 #endif /* threads/thread.h */

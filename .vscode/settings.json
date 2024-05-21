@@ -10,6 +10,7 @@
         "fixed_point.h": "c",
         "vaddr.h": "c",
         "intrinsic.h": "c",
-        "palloc.h": "c"
+        "palloc.h": "c",
+        "list.h": "c"
     }
 }

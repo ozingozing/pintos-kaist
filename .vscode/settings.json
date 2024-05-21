@@ -11,6 +11,7 @@
         "vaddr.h": "c",
         "intrinsic.h": "c",
         "palloc.h": "c",
-        "list.h": "c"
+        "list.h": "c",
+        "process.h": "c"
     }
 }

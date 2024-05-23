@@ -22,6 +22,9 @@
 #include "vm/vm.h"
 #endif
 
+#define ALIGNMENT 8
+#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -58,7 +61,8 @@ process_create_initd (const char *file_name) {
 	if (fn_copy == NULL)
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
-
+	char *save_ptr;
+	strtok_r(file_name, " ", &save_ptr);
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -225,6 +229,9 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
+	//메모리 디버깅용
+	hex_dump(_if.rsp, _if.rsp, KERN_BASE - _if.rsp, true);
+
 	/* Start switched process. */
 	/* 전환된 프로세스를 시작합니다. */
 	do_iret (&_if);
@@ -256,6 +263,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: 힌트) process_wait (initd)에서 pintos가 종료되는 경우,
 	 * XXX: process_wait을 구현하기 전에 여기에 무한 루프를 추가하는 것을
 	 * XXX: 권장합니다. */
+	while(child_tid);
 	return -1;
 }
 
@@ -403,6 +411,13 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	//argv배열에 파라미터 삽입
+	char *token, *save_ptr;
+	int argc = 0;
+	char **argv[200];
+	for(token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
+		argv[argc++] = token;
+
 	/* Allocate and activate page directory. */
 	/* 페이지 디렉토리를 할당하고 활성화합니다. */
 	t->pml4 = pml4_create ();
@@ -502,6 +517,47 @@ load (const char *file_name, struct intr_frame *if_) {
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	 /* TODO: 여기에 코드를 작성하세요. 
 	  * TODO: 인자 전달을 구현합니다 (project2/argument_passing.html 참조). */
+	
+	//1. 인자 <== 방향으로 넣기
+	for(int i = argc - 1; i >= 0; i--)
+	{
+		size_t len = strlen(argv[i]) + 1;
+		if_->rsp -= len;
+		memcpy((void *)if_->rsp, argv[i], len);
+		argv[i] = if_->rsp;
+	}
+	
+	//2. 만약 rsp포인터가 8의 배수가 아니면
+	//남은 간격은 0으로 넣기 자료형은 int8_t == 1byte
+	if(if_->rsp % 8 != 0)
+	{
+		for(int i = 0; i < ALIGN(if_->rsp) - if_->rsp; i++)
+		{
+			if_->rsp--;
+			*(int8_t *)if_->rsp = 0;
+		}
+	}
+
+	//3. NULL넣기
+	if_->rsp -= sizeof(char *);
+	*(char **)if_->rsp = NULL;
+
+	//4. &argv[0], &argv[1], ... char배열 포인터 넣기
+	for(int i = argc - 1; i >= 0; i--)
+	{
+		if_->rsp -= sizeof(char *);
+		*(char **)if_->rsp = argv[i];
+	}
+
+	//5. fake address 넣기
+	if_->rsp -= sizeof(void *);
+	*(void **)if_->rsp = NULL;
+
+	// 레지스터 설정
+    if_->R.rdi = argc;  // argc
+    if_->R.rsi = &argv; // argv
+
+
 	success = true;
 
 done:

@@ -549,14 +549,13 @@ load (const char *file_name, struct intr_frame *if_) {
 		*(char **)if_->rsp = argv[i];
 	}
 
+	// 레지스터 설정
+    if_->R.rdi = argc;  // argc
+    if_->R.rsi = if_->rsp; // argv
+
 	//5. fake address 넣기
 	if_->rsp -= sizeof(void *);
 	*(void **)if_->rsp = NULL;
-
-	// 레지스터 설정
-    if_->R.rdi = argc;  // argc
-    if_->R.rsi = &argv; // argv
-
 
 	success = true;
 

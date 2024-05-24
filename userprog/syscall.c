@@ -10,7 +10,7 @@
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-
+void check_address (void *addr);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler

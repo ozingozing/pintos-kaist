@@ -230,7 +230,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	//메모리 디버깅용
-	hex_dump(_if.rsp, _if.rsp, KERN_BASE - _if.rsp, true);
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* Start switched process. */
 	/* 전환된 프로세스를 시작합니다. */

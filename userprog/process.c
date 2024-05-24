@@ -230,7 +230,7 @@ process_exec (void *f_name) {
 		return -1;
 
 	//메모리 디버깅용
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* Start switched process. */
 	/* 전환된 프로세스를 시작합니다. */
@@ -263,7 +263,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: 힌트) process_wait (initd)에서 pintos가 종료되는 경우,
 	 * XXX: process_wait을 구현하기 전에 여기에 무한 루프를 추가하는 것을
 	 * XXX: 권장합니다. */
-	while(child_tid);
+	for(int i = 0; i < 1000000000; i++){}
 	return -1;
 }
 

@@ -562,6 +562,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->origin_priority = priority; // 원래의 우선순위 설정
 	list_init(&t->donations); // 기부해준 쓰레드들을 저장할 쓰레드 초기화
 	t->wait_on_lock = NULL; // 초기화
+	t->exit_status = 1; // 종료 상태 0이면 잘 끝남 그 외에는 잘 안끝나서 추가 행동 필요
+	t->fd = 2; //0표준입력 1표준출력 2는 표준에러인데 pintos에는 없음
+	// for(int i = 0; i < 1024; i++)
+	// 	t->fd_table[i] = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

@@ -120,7 +120,7 @@ struct thread {
 	real recent_cpu;			//최근에 CPU얼마나 썼는지 많이 쓰면 쓸 수록
 	int exit_status;
 	unsigned fd;				//파일디스크립터 == idx
-	struct file *fd_table[1024];//파일을 담고있는 파일디스크립터 테이블
+	struct file **fd_table;//파일을 담고있는 파일디스크립터 테이블
 };
 
 /* If false (default), use round-robin scheduler.

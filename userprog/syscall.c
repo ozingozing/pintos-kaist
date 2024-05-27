@@ -13,10 +13,25 @@
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 void check_address (void *addr);
+bool fd_is_valid(int fd);
+bool file_is_valid(char *file);
+
 struct file *get_file_from_fd (int fd);
 int add_file_to_fd_table (struct file *file);
-bool sys_create(const char *file, unsigned initial_size);
 
+bool sys_create(const char *file, unsigned initial_size);
+int sys_open(const char *file);
+int sys_filesize (int fd);
+int sys_read (int fd, void *buffer, unsigned length);
+int sys_write(int fd, const void *buffer, unsigned size);
+bool sys_remove (const char *file);
+void sys_close(int fd);
+void sys_exit(int status);
+void sys_halt(void);
+void sys_seek (int fd, unsigned position);
+unsigned sys_tell (int fd);
+
+struct lock *localLock;
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -41,6 +56,7 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
 }
 
 /* The main system call interface */
@@ -58,10 +74,10 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	switch (sys_number)
 	{
 	case SYS_HALT: 							// 운영체제 종료
-		halt();
+		sys_halt();
 		break;
 	case SYS_EXIT:							// 프로그램 종료 후 상태 반환
-		exit(f->R.rdi);
+		sys_exit(f->R.rdi);
 		break;
 	// 	break;
 	// // case SYS_FORK:							// 자식 프로세스 생성
@@ -71,28 +87,33 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// case SYS_WAIT:							// 자식 프로세스가 종료될 때까지 기다림
 	// 	wait(f->R.rdi);		
 	case SYS_CREATE:
-        sys_create(f->R.rdi, f->R.rsi);
+        f->R.rax = sys_create(f->R.rdi, f->R.rsi);
 		break;
-	// case SYS_REMOVE:						// 파일 삭제
-	// 	remove(f->R.rdi);
+	case SYS_REMOVE:						// 파일 삭제
+		 f->R.rax = sys_remove(f->R.rdi);
+		break;
 	case SYS_OPEN:							// 파일 열기
-		f->R.rax = open(f->R.rdi);
+		f->R.rax = sys_open(f->R.rdi);
 		break;
-	// case SYS_FILESIZE:						// 파일 사이즈 반환
-	// 	filesize(f->R.rdi);
-	// case SYS_READ:							// 파일에서 데이터 읽기
-	// 	read(f->R.rdi, f->R.rsi, f->R.rdx);
+	case SYS_FILESIZE:						// 파일 사이즈 반환
+		f->R.rax = sys_filesize(f->R.rdi);
+		break;
+	case SYS_READ:							// 파일에서 데이터 읽기
+		f->R.rax = sys_read(f->R.rdi, f->R.rsi, f->R.rdx);
+		break;
 	case SYS_WRITE:							// 파일에 데이터 쓰기
-		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
+		f->R.rax = sys_write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
-	// case SYS_SEEK:							// 파일의 읽기/쓰기 포인터 이동
-	// 	seek(f->R.rdi, f->R.rsi);
-	// case SYS_TELL:							// 파일의 현재 읽기/쓰기 데이터 반환
-	// 	tell(f->R.rdi);
-	// case SYS_CLOSE:							// 파일 닫기
-	// 	close(f->R.rdi);
+	case SYS_SEEK:							// 파일의 읽기/쓰기 포인터 이동
+		sys_seek(f->R.rdi, f->R.rsi);
+		break;
+	case SYS_TELL:							// 파일의 현재 읽기/쓰기 데이터 반환
+		sys_tell(f->R.rdi);
+		break;
+	case SYS_CLOSE:							// 파일 닫기
+		sys_close(f->R.rdi);
+		break;
 	default:
-		printf ("system call!\n");
 		thread_exit ();
 	}
 	// printf ("system call!\n");
@@ -103,35 +124,207 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 /*User memory access는 이후 시스템 콜 구현할 때 메모리에 접근할 텐데, 
 이때 접근하는 메모리 주소가 유저 영역인지 커널 영역인지를 체크*/
-void check_address (void *addr){
+void check_address (void *addr)
+{
 	struct thread *t = thread_current();
 	
 	/*포인터가 가리키는 주소가 유저영역의 주소인지 확인 
 	|| 포인터가 가리키는 주소가 유저 영역 내에 있지만 
 	페이지로 할당하지 않은 영역일수도 잇으니 체크*/
 	if (!is_user_vaddr(addr) || addr == NULL || pml4_get_page(t->pml4, addr) == NULL){ 	
-		exit(-1);	// 잘못된 접근일 경우 프로세스 종료
+		sys_exit(-1);	// 잘못된 접근일 경우 프로세스 종료
 	}
 }
 
+/* file 만들기 */
 bool sys_create(const char *file, unsigned initial_size)
 {
 	check_address(file);
+	if(!file_is_valid(file))
+		sys_exit(-1);
 	return filesys_create(file, initial_size);
 }
 
 
-int open(const char *file)
+/* file 열기 */
+int sys_open(const char *file)
 {
 	check_address((void *)file);
+
+	if(!file_is_valid(file))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+
 	struct file *f = filesys_open(file);
 
 	if(f == NULL)
 		return -1;
-	return add_file_to_fd_table(f);
+	int fd =  add_file_to_fd_table(f);
+	if(fd == -1 )
+		file_close(f);
+	return fd;
 }
 
-//해당 파일을 파일 디스크립터 배열에 추가
+/* fd에 해당하는 파일 크기 들고오기 */
+int sys_filesize (int fd)
+{
+	struct file *f = get_file_from_fd(fd);
+	if(!file_is_valid(fd))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+
+
+	if(f == NULL) return -1;
+	return file_length(f);
+}
+
+/* file 읽기 */
+int sys_read (int fd, void *buffer, unsigned length)
+{
+	check_address(buffer);
+	if(!fd_is_valid(fd))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+
+
+    if (fd == 0)//표준입력 받기
+	{
+        unsigned i;
+        for (i = 0; i < length; i++)
+		{
+            ((uint8_t *)buffer)[i] = input_getc();
+        }
+        return i;
+    } 
+	else if (fd > 1 && fd < INT8_MAX) 
+	{
+        // 파일에서 읽기
+        struct file *file = get_file_from_fd(fd);
+        if (file == NULL)
+			 return -1;
+        
+		int bytes_read = file_read(file, buffer, length);
+        if (bytes_read < 0)
+			return -1;
+
+        return bytes_read;
+    }
+    return -1;  // 기본적으로 실패 반환
+}
+
+/* file 쓰기 */
+int sys_write(int fd, const void *buffer, unsigned size)
+{
+	check_address(buffer);
+	if(!fd_is_valid(fd))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+
+	if(fd == 0 ) return -1; //0이면 표준 입력이니 -1 오류 리턴
+	else if (fd == 1) //1이면 표준출력
+	{
+		putbuf(buffer, size);
+		return size;
+	}
+	else
+	{
+		struct file *f = get_file_from_fd(fd);
+		if(f == NULL)
+			return -1;
+		
+		return file_write(f, buffer, size);
+	}
+	return -1;
+}
+
+/* seek 시스템 콜은 파일의 현재 읽기/쓰기 위치를 
+지정된 위치로 이동시키는 역할을 합니다. 
+이는 파일 포인터를 변경하여 다음 
+읽기나 쓰기가 지정된 위치에서 시작되도록 합니다. */
+void sys_seek (int fd, unsigned position)
+{
+	if(!fd_is_valid(fd))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+	file_seek(get_file_from_fd(fd), position);
+}
+
+/* tell 시스템 콜은 현재 파일 포인터의 위치를 반환합니다. 
+이는 파일 내에서 현재 읽기/쓰기 위치를 알려줍니다. */
+unsigned sys_tell (int fd)
+{
+	if(!fd_is_valid(fd))
+	{
+		sys_exit(-1);
+		return -1;
+	}
+	return file_tell(get_file_from_fd(fd));
+}
+
+/* file 닫기 */
+void sys_close(int fd)
+{
+	struct file *f = get_file_from_fd(fd);
+	if(f != NULL)
+	{
+		file_close(f);
+		remove_fd(fd);
+	}
+}
+
+/* pintos 종료시키는 함수 */
+void sys_halt(void)
+{
+	power_off();
+}
+
+/* 현재 프로세스를 종료시키는 시스템 콜 */
+void sys_exit(int status)
+{
+	struct thread *t = thread_current();
+	t->exit_status = status;
+	#ifdef USERPROG 
+	printf("%s: exit(%d)\n", t->name, t->exit_status);
+	#endif
+	thread_exit();
+}
+
+/*파일을 제거하는 함수, 
+이 때 파일을 제거하더라도 그 이전에 파일을 오픈했다면 
+해당 오픈 파일은 close 되지 않고 그대로 켜진 상태로 남아있는다.*/
+bool sys_remove (const char *file) 
+{
+	check_address(file);
+	if(!file_is_valid(file))
+		sys_exit(-1);
+
+	return filesys_remove(file);
+}
+
+
+
+/* fd에 해당하는 파일 추가 삭제 들고오기 */
+
+//fd배열에서 file 가져오기
+struct file *get_file_from_fd (int fd)
+{
+	struct thread *t = thread_current();
+	if(fd < 2 || fd > INT8_MAX)
+		return NULL;
+	return t->fd_table[fd];
+}
+
+/* 해당 파일을 파일 디스크립터 배열에 추가 */
 int add_file_to_fd_table (struct file *file)
 {
 	struct thread *t = thread_current();
@@ -144,58 +337,25 @@ int add_file_to_fd_table (struct file *file)
     return -1;
 }
 
-
-/* pintos 종료시키는 함수 */
-void halt(void){
-	// printf("halt 실행됐고 pintos 종료\n");
-	// filesys_done();
-	power_off();
-}
-
-/* 현재 프로세스를 종료시키는 시스템 콜 */
-void exit(int status){
-	struct thread *t = thread_current();
-	t->exit_status = status;
-	printf("%s: exit(%d)\n", t->name, t->exit_status);
-	thread_exit();
-}
-
-int write(int fd, const void *buffer, unsigned size)
-{
-	if (fd == 1)
-	{
-		putbuf(buffer, size);
-		return size;
-	}
-	else
-	{
-		struct file *f = get_file_from_fd(fd);
-
-		if(f == NULL)
-			return -1;
-		int byte_written = file_write(f, buffer, size);
-		return byte_written;
-	}
-	return -1;
-}
-
-//fd배열에서 file 가져오기
-struct file *get_file_from_fd (int fd)
+/* fd에 해당하는 파일 제거 */
+void remove_fd(int fd) 
 {
 	struct thread *t = thread_current();
-	if(fd < 2 || fd >= 1024)
-		return NULL;
-	return t->fd_table[fd];
+	if(fd > 1 && fd < INT8_MAX)
+		return t->fd_table[fd] = NULL;
 }
 
-// /*파일을 제거하는 함수, 
-// 이 때 파일을 제거하더라도 그 이전에 파일을 오픈했다면 
-// 해당 오픈 파일은 close 되지 않고 그대로 켜진 상태로 남아있는다.*/
-// bool remove (const char *file) {
-// 	check_address(file);
-// 	if (filesys_remove(file)) {
-// 		return true;
-// 	} else {
-// 		return false;
-// 	}
-// }
+/* fd가 유효한지 확인 */
+bool fd_is_valid(int fd)
+{
+	if(-1 < fd && fd < INT8_MAX) return true;
+	else return false;
+}
+
+/* 파일이 유효한지 확인 */
+bool file_is_valid(char *file)
+{
+	if(file == "" || file == NULL) return false;
+	else return true;
+}
+/* *********************************** */

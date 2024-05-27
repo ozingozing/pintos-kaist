@@ -12,6 +12,8 @@
         "intrinsic.h": "c",
         "palloc.h": "c",
         "list.h": "c",
-        "process.h": "c"
+        "process.h": "c",
+        "*.inc": "c",
+        "syscall.h": "c"
     }
 }

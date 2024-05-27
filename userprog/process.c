@@ -36,6 +36,7 @@ static void __do_fork (void *);
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+	current->fd_table = palloc_get_multiple(PAL_USER | PAL_ZERO, INT8_MAX);
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -263,7 +264,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: 힌트) process_wait (initd)에서 pintos가 종료되는 경우,
 	 * XXX: process_wait을 구현하기 전에 여기에 무한 루프를 추가하는 것을
 	 * XXX: 권장합니다. */
-	for(int i = 0; i < 1000000000; i++){}
+	for(int i = 0; i < 2000000000; i++){}
 	return -1;
 }
 

@@ -210,6 +210,9 @@ pml4_activate (uint64_t *pml4) {
  * address UADDR in pml4.  Returns the kernel virtual address
  * corresponding to that physical address, or a null pointer if
  * UADDR is unmapped. */
+/* pml4에서 사용자 가상 주소 UADDR에 해당하는 물리적 주소를 찾습니다.
+ * 해당 물리적 주소에 해당하는 커널 가상 주소를 반환하며,
+ * UADDR이 매핑되지 않은 경우 null 포인터를 반환합니다. */
 void *
 pml4_get_page (uint64_t *pml4, const void *uaddr) {
 	ASSERT (is_user_vaddr (uaddr));
@@ -229,6 +232,13 @@ pml4_get_page (uint64_t *pml4, const void *uaddr) {
  * otherwise it is read-only.
  * Returns true if successful, false if memory allocation
  * failed. */
+/* 페이지 맵 레벨 4(PML4)에서 사용자 가상 페이지 UPAGE를
+ * 커널 가상 주소 KPAGE에 의해 식별되는 물리적 프레임에 매핑합니다.
+ * UPAGE는 이미 매핑되어 있지 않아야 합니다. KPAGE는 아마도
+ * palloc_get_page()로 사용자 풀에서 얻은 페이지여야 합니다.
+ * WRITABLE이 true이면 새 페이지는 읽기/쓰기가 가능하며,
+ * 그렇지 않으면 읽기 전용입니다.
+ * 성공하면 true를 반환하고, 메모리 할당에 실패하면 false를 반환합니다. */
 bool
 pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
 	ASSERT (pg_ofs (upage) == 0);
@@ -247,6 +257,15 @@ pml4_set_page (uint64_t *pml4, void *upage, void *kpage, bool rw) {
  * directory PD.  Later accesses to the page will fault.  Other
  * bits in the page table entry are preserved.
  * UPAGE need not be mapped. */
+/* 사용자 가상 페이지 UPAGE를 페이지 디렉토리 PD에서 "not present"로 표시합니다.
+ * 이후 페이지에 대한 접근은 페이지 폴트(fault)를 일으킵니다.
+ * 페이지 테이블 엔트리의 다른 비트는 보존됩니다.
+ * UPAGE는 매핑될 필요가 없습니다. */
+/* 이 주석은 사용자 가상 페이지(UPAGE)를 "존재하지 않음"으로 표시하여 
+ * 이후에 해당 페이지에 접근하면 
+ * 페이지 폴트가 발생하도록 만드는 기능을 설명하고 있습니다. 
+ * 즉, 페이지 테이블 엔트리(PTE)에서 해당 페이지가 
+ * 메모리에 존재하지 않도록 표시하는 것입니다. */
 void
 pml4_clear_page (uint64_t *pml4, void *upage) {
 	uint64_t *pte;
@@ -266,6 +285,9 @@ pml4_clear_page (uint64_t *pml4, void *upage) {
  * that is, if the page has been modified since the PTE was
  * installed.
  * Returns false if PML4 contains no PTE for VPAGE. */
+/* 가상 페이지 VPAGE의 PTE가 PML4에서 더럽혀졌다면(true),
+ * 즉, PTE가 설치된 이후 페이지가 수정되었다면 true를 반환합니다.
+ * VPAGE에 대한 PTE가 PML4에 없으면 false를 반환합니다. */
 bool
 pml4_is_dirty (uint64_t *pml4, const void *vpage) {
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) vpage, false);
@@ -274,6 +296,8 @@ pml4_is_dirty (uint64_t *pml4, const void *vpage) {
 
 /* Set the dirty bit to DIRTY in the PTE for virtual page VPAGE
  * in PML4. */
+/* PML4의 가상 페이지 VPAGE에 대한 PTE에서 더티 비트를
+ * DIRTY로 설정합니다. */
 void
 pml4_set_dirty (uint64_t *pml4, const void *vpage, bool dirty) {
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) vpage, false);
@@ -292,6 +316,9 @@ pml4_set_dirty (uint64_t *pml4, const void *vpage, bool dirty) {
  * accessed recently, that is, between the time the PTE was
  * installed and the last time it was cleared.  Returns false if
  * PML4 contains no PTE for VPAGE. */
+/* PML4의 가상 페이지 VPAGE에 대한 PTE가 최근에 접근되었다면,
+ * 즉, PTE가 설치된 이후 마지막으로 클리어될 때까지 접근되었다면 true를 반환합니다.
+ * PML4에 VPAGE에 대한 PTE가 없으면 false를 반환합니다. */
 bool
 pml4_is_accessed (uint64_t *pml4, const void *vpage) {
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) vpage, false);
@@ -300,6 +327,8 @@ pml4_is_accessed (uint64_t *pml4, const void *vpage) {
 
 /* Sets the accessed bit to ACCESSED in the PTE for virtual page
    VPAGE in PD. */
+/* 가상 페이지 VPAGE에 대한 PTE에서 접근 비트를
+   ACCESSED로 설정합니다. */
 void
 pml4_set_accessed (uint64_t *pml4, const void *vpage, bool accessed) {
 	uint64_t *pte = pml4e_walk (pml4, (uint64_t) vpage, false);

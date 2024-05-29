@@ -76,7 +76,7 @@ sema_down (struct semaphore *sema) {
    struct tread *curr = thread_current();
 
 	old_level = intr_disable ();
-	if (sema->value == 0) {
+	if (sema->value <= 0) {
 		list_push_front(&sema->waiters, &thread_current ()->elem);
 		thread_block ();
 	}

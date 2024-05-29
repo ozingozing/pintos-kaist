@@ -37,6 +37,8 @@ file_reopen (struct file *file) {
 
 /* Duplicate the file object including attributes and returns a new file for the
  * same inode as FILE. Returns a null pointer if unsuccessful. */
+/* 파일 객체를 속성 포함하여 복제하고 동일한 inode에 대해 새로운 파일을 반환합니다.
+ * 실패한 경우 null 포인터를 반환합니다. */
 struct file *
 file_duplicate (struct file *file) {
 	struct file *nfile = file_open (inode_reopen (file->inode));

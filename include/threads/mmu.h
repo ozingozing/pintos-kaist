@@ -20,8 +20,11 @@ void pml4_set_dirty (uint64_t *pml4, const void *upage, bool dirty);
 bool pml4_is_accessed (uint64_t *pml4, const void *upage);
 void pml4_set_accessed (uint64_t *pml4, const void *upage, bool accessed);
 
+/* 해당 페이지 테이블 엔트리가 쓰기 가능한지 확인 */
 #define is_writable(pte) (*(pte) & PTE_W)
+/* 해당 페이지 테이블 엔트리가 사용자 영역에 속하는지 확인 */
 #define is_user_pte(pte) (*(pte) & PTE_U)
+/* 해당 페이지 테이블 엔트리가 커널 영역에 속하는지 확인 */
 #define is_kern_pte(pte) (!is_user_pte (pte))
 
 #define pte_get_paddr(pte) (pg_round_down(*(pte)))

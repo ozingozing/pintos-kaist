@@ -14,6 +14,16 @@
         "list.h": "c",
         "process.h": "c",
         "*.inc": "c",
-        "syscall.h": "c"
+        "syscall.h": "c",
+        "directory.h": "c",
+        "syscall-nr.h": "c",
+        "types.h": "c",
+        "file.h": "c",
+        "stddef.h": "c",
+        "random.h": "c",
+        "flags.h": "c",
+        "intr-stubs.h": "c",
+        "init.h": "c",
+        "filesys.h": "c"
     }
 }

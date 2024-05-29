@@ -33,15 +33,6 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-/* sleep 쓰레드 리스트 */
-static struct list sleep_list;
-
-/* 모든 리스트 관리 */
-static struct list all_list;	
-
-/* Thread destruction requests */
-static struct list destruction_req;
-
 /* Lock used by allocate_tid(). */
 static struct lock tid_lock;
 
@@ -113,6 +104,16 @@ static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
    It is not safe to call thread_current() until this function
    finishes. */
+/* 현재 실행 중인 코드를 스레드로 변환하여 스레드 시스템을 초기화합니다.
+   일반적으로는 작동하지 않지만, 이번 경우에는 loader.S가 스택의 바닥을 페이지 경계에
+   맞추도록 주의했기 때문에 가능합니다.
+
+   또한 실행 큐와 tid 락을 초기화합니다.
+
+   이 함수를 호출한 후, thread_create()로 스레드를 생성하기 전에 페이지 할당자를
+   반드시 초기화해야 합니다.
+
+   이 함수가 끝나기 전까지는 thread_current()를 호출하는 것이 안전하지 않습니다. */
 void
 thread_init (void) {
 	ASSERT (intr_get_level () == INTR_OFF);
@@ -135,7 +136,8 @@ thread_init (void) {
 	list_init(&sleep_list);
 	list_init (&destruction_req);
 	list_init(&all_list);
-
+	list_init(&child_list);
+	
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -204,6 +206,18 @@ thread_print_stats (void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
+/* NAME이라는 새로운 커널 스레드를 주어진 초기 PRIORITY로 생성하며,
+   AUX를 인자로 전달하여 FUNCTION을 실행합니다. 그리고 이를 준비 큐에 추가합니다.
+   새로운 스레드의 스레드 식별자를 반환하며, 생성에 실패하면 TID_ERROR를 반환합니다.
+
+   thread_start()가 호출된 이후에는 새로운 스레드가 thread_create()가 반환되기 전에
+   스케줄링될 수 있습니다. 심지어 새로운 스레드가 thread_create()가 반환되기 전에
+   종료될 수도 있습니다. 반대로, 원래 스레드는 새로운 스레드가 스케줄링되기 전에
+   어느 정도의 시간 동안 실행될 수 있습니다. 순서를 보장해야 한다면 세마포어나 다른 형태의
+   동기화를 사용해야 합니다.
+
+   제공된 코드는 새로운 스레드의 `priority` 멤버를 PRIORITY로 설정하지만, 실제 우선순위
+   스케줄링은 구현되지 않았습니다. 우선순위 스케줄링은 문제 1-3의 목표입니다. */
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
@@ -231,13 +245,20 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
+	
+	
 	if(name != "idle")
+	{
 		list_push_front(&all_list, &t->all_elem);
-
+	}
+	if(aux != NULL)
+	{
+		list_push_front(&child_list, &t->child_elem);
+		t->fd_table = palloc_get_multiple(PAL_USER | PAL_ZERO, INT8_MAX);
+	}
 	/* Add to run queue. */
 	thread_unblock (t);
-
+	
 	return tid;
 }
 
@@ -326,7 +347,6 @@ thread_tid (void) {
 void
 thread_exit (void) {
 	ASSERT (!intr_context ());
-
 #ifdef USERPROG
 	process_exit ();
 #endif
@@ -558,14 +578,16 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->recent_cpu = 0;
 	///////////////////////
 	t->magic = THREAD_MAGIC;
-
+	
 	t->origin_priority = priority; // 원래의 우선순위 설정
 	list_init(&t->donations); // 기부해준 쓰레드들을 저장할 쓰레드 초기화
 	t->wait_on_lock = NULL; // 초기화
 	t->exit_status = 1; // 종료 상태 0이면 잘 끝남 그 외에는 잘 안끝나서 추가 행동 필요
 	t->fd = 2; //0표준입력 1표준출력 2는 표준에러인데 pintos에는 없음
-	// for(int i = 0; i < 1024; i++)
-	// 	t->fd_table[i] = NULL;
+	
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->when_use_free_curr_sema, 0);
+	sema_init(&t->when_use_wait_other_sema, 0);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -922,4 +944,18 @@ void update_nice(void)
 		//  printf("%s: nice:%d priorrity:%d , ",curr->name, curr->nice, curr->priority);
 	}
 	// printf("\n");
+}
+
+
+/* =========== Project 2 - Custom Function =========== */
+struct thread *
+get_child_thread(tid_t tid) {
+	struct thread *curr_thread = thread_current();
+	for (struct list_elem *e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
+		struct thread *child_thread = list_entry(e, struct thread, child_elem);
+		if (child_thread->tid == tid) {
+			return child_thread;
+		}
+	}
+	return NULL;
 }

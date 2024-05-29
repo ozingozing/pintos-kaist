@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 #include "threads/fixed_point.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -113,15 +114,38 @@ struct thread {
 	int64_t wakeup_tick; // 슬립 쓰레드 시간되면 깨우는 틱
 	int origin_priority; // 실제 오리진 우선순위
 	struct list donations; // 이 쓰레드에 우선순위를 기부하는 쓰레드들의 리스트
+	
 	struct list_elem d_elem; // donations리스트의 elem
 	struct list_elem all_elem; //모든 리스트 관리
+	struct list_elem child_elem;
 	struct lock *wait_on_lock; // 대기중인 락
+	
+	struct semaphore fork_sema;
+	struct semaphore when_use_wait_other_sema;
+	struct semaphore when_use_free_curr_sema;
+
 	int nice;					//나이스한 녀석 nice지수가 높으면(양수) 양보 잘함 낮으면(음수) 양보 못함
 	real recent_cpu;			//최근에 CPU얼마나 썼는지 많이 쓰면 쓸 수록
 	int exit_status;
 	unsigned fd;				//파일디스크립터 == idx
 	struct file **fd_table;//파일을 담고있는 파일디스크립터 테이블
+
+	struct intr_frame *pre_if; //이전 if정보
+	struct file *running_file;
 };
+
+
+/* sleep 쓰레드 리스트 */
+static struct list sleep_list;
+
+/* 모든 리스트 관리 */
+static struct list all_list;	
+
+/* Thread destruction requests */
+static struct list destruction_req;
+
+static struct list child_list;
+
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -185,5 +209,7 @@ real get_decay();
 void update_nice();
 
 void update_donation_list(struct lock *_lock);
+
+struct thread *get_child_thread(tid_t tid);
 
 #endif /* threads/thread.h */

@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include "lib/stdio.h"
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -9,6 +10,8 @@
 #include "intrinsic.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "userprog/process.h"
+#include "threads/palloc.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -30,6 +33,7 @@ void sys_exit(int status);
 void sys_halt(void);
 void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
+int sys_exec (const char *cmd_line);
 
 struct lock *localLock;
 /* System call.
@@ -40,6 +44,9 @@ struct lock *localLock;
  *
  * The syscall instruction works by reading the values from the the Model
  * Specific Register (MSR). For the details, see the manual. */
+
+
+typedef int pid_t;
 
 #define MSR_STAR 0xc0000081         /* Segment selector msr */
 #define MSR_LSTAR 0xc0000082        /* Long mode SYSCALL target */
@@ -79,13 +86,16 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_EXIT:							// 프로그램 종료 후 상태 반환
 		sys_exit(f->R.rdi);
 		break;
-	// 	break;
-	// // case SYS_FORK:							// 자식 프로세스 생성
-	// 	fork(f->R.rdi);
-	// case SYS_EXEC:							// 새 프로그램 실행
-	// 	exec(f->R.rdi);
-	// case SYS_WAIT:							// 자식 프로세스가 종료될 때까지 기다림
-	// 	wait(f->R.rdi);		
+	case SYS_FORK:							// 자식 프로세스 생성
+		thread_current()->pre_if = f;
+		f->R.rax = fork(f->R.rdi);
+		break;
+	case SYS_EXEC:							// 새 프로그램 실행
+		f->R.rax = sys_exec(f->R.rdi);
+		break;
+	case SYS_WAIT:							// 자식 프로세스가 종료될 때까지 기다림
+		f->R.rax = wait(f->R.rdi);		
+		break;
 	case SYS_CREATE:
         f->R.rax = sys_create(f->R.rdi, f->R.rsi);
 		break;
@@ -113,8 +123,6 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_CLOSE:							// 파일 닫기
 		sys_close(f->R.rdi);
 		break;
-	default:
-		thread_exit ();
 	}
 	// printf ("system call!\n");
 	// struct thread *t = thread_current();
@@ -193,7 +201,7 @@ int sys_read (int fd, void *buffer, unsigned length)
 	}
 
 
-    if (fd == 0)//표준입력 받기
+    if (fd == STDIN_FILENO)//표준입력 받기
 	{
         unsigned i;
         for (i = 0; i < length; i++)
@@ -202,6 +210,8 @@ int sys_read (int fd, void *buffer, unsigned length)
         }
         return i;
     } 
+	else if(fd == STDOUT_FILENO) 
+		return -1;
 	else if (fd > 1 && fd < INT8_MAX) 
 	{
         // 파일에서 읽기
@@ -228,8 +238,9 @@ int sys_write(int fd, const void *buffer, unsigned size)
 		return -1;
 	}
 
-	if(fd == 0 ) return -1; //0이면 표준 입력이니 -1 오류 리턴
-	else if (fd == 1) //1이면 표준출력
+	if(fd == STDIN_FILENO)//0이면 표준 입력이니 -1 오류 리턴
+		return -1; 
+	else if (fd == STDOUT_FILENO) //1이면 표준출력
 	{
 		putbuf(buffer, size);
 		return size;
@@ -312,6 +323,37 @@ bool sys_remove (const char *file)
 }
 
 
+pid_t fork (const char *thread_name)
+{
+	return process_fork(thread_name, thread_current()->pre_if);
+}
+
+int sys_exec (const char *cmd_line) {
+	check_address(cmd_line);
+
+	char *copy = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (copy == NULL)	sys_exit(-1);
+
+	strlcpy(copy, cmd_line, PGSIZE);
+	if (process_exec(copy) == -1)	sys_exit(-1);
+	
+	return 0;
+}
+
+
+
+int wait(pid_t tid)
+{
+	return process_wait (tid);
+}
+
+
+
+
+
+
+
+
 
 /* fd에 해당하는 파일 추가 삭제 들고오기 */
 
@@ -328,7 +370,7 @@ struct file *get_file_from_fd (int fd)
 int add_file_to_fd_table (struct file *file)
 {
 	struct thread *t = thread_current();
-    for (int i = 2; i < 10; i++) {
+    for (int i = 2; i < INT8_MAX; i++) {
         if (t->fd_table[i] == NULL) {
             t->fd_table[i] = file;
             return i;

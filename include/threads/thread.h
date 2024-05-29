@@ -123,6 +123,7 @@ struct thread {
 	struct semaphore fork_sema;
 	struct semaphore when_use_wait_other_sema;
 	struct semaphore when_use_free_curr_sema;
+	struct semaphore load;
 
 	int nice;					//나이스한 녀석 nice지수가 높으면(양수) 양보 잘함 낮으면(음수) 양보 못함
 	real recent_cpu;			//최근에 CPU얼마나 썼는지 많이 쓰면 쓸 수록

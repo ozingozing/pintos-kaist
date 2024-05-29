@@ -8,6 +8,7 @@
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -229,7 +230,7 @@ __do_fork (void *aux) {
 error:
 	current->exit_status = TID_ERROR;
 	sema_up(&current->fork_sema);
-	thread_exit ();
+	sys_exit(TID_ERROR);
 }
 
 /* Switch the current execution context to the f_name.
@@ -255,9 +256,11 @@ process_exec (void *f_name) {
 	/* 먼저 현재 컨텍스트를 종료합니다. */
 	process_cleanup ();
 
+	
 	/* And then load the binary */
 	/* 그런 다음 바이너리를 로드합니다. */
 	success = load (file_name, &_if);
+	// sema_up(&thread_current()->load);
 
 	/* If load failed, quit. */
 	/* 로드에 실패하면 종료합니다. */
@@ -323,6 +326,7 @@ process_exit (void) {
 	 * TODO: 여기에 프로세스 자원 정리를 구현하는 것을 권장합니다. */
 	// process_cleanup ();
 	
+	file_close(curr->running_file);
 	process_cleanup ();
 	
 	sema_up(&curr->when_use_wait_other_sema);
@@ -607,7 +611,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	*(void **)if_->rsp = NULL;
 
 	success = true;
-
+	return success;
 done:
 	/* We arrive here whether the load is successful or not. */
 	/* 로드가 성공했든 실패했든 여기에 도착합니다. */

@@ -13,6 +13,8 @@
 #include "userprog/process.h"
 #include "threads/palloc.h"
 
+struct lock local_lock;
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 void check_address (void *addr);
@@ -35,7 +37,6 @@ void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
 int sys_exec (const char *cmd_line);
 
-struct lock *localLock;
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -63,7 +64,7 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-
+	lock_init(&local_lock);
 }
 
 /* The main system call interface */
@@ -218,8 +219,9 @@ int sys_read (int fd, void *buffer, unsigned length)
         struct file *file = get_file_from_fd(fd);
         if (file == NULL)
 			 return -1;
-        
+        // lock_acquire(&local_lock);
 		int bytes_read = file_read(file, buffer, length);
+		// lock_release(&local_lock);
         if (bytes_read < 0)
 			return -1;
 
@@ -329,15 +331,10 @@ pid_t fork (const char *thread_name)
 }
 
 int sys_exec (const char *cmd_line) {
-	check_address(cmd_line);
-
-	char *copy = palloc_get_page(PAL_USER | PAL_ZERO);
-	if (copy == NULL)	sys_exit(-1);
-
-	strlcpy(copy, cmd_line, PGSIZE);
-	if (process_exec(copy) == -1)	sys_exit(-1);
-	
-	return 0;
+	char *temp = palloc_get_page(0);
+	strlcpy(temp, cmd_line, strlen(cmd_line) + 1);
+	// sema_down(&thread_current()->load);
+	return process_exec(temp);
 }
 
 

@@ -73,7 +73,7 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
-static void preemption (void);
+
 static bool tick_less (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -255,6 +255,7 @@ thread_create (const char *name, int priority,
 	{
 		list_push_front(&child_list, &t->child_elem);
 		t->fd_table = palloc_get_multiple(PAL_USER | PAL_ZERO, INT8_MAX);
+		t->terminated = false;
 	}
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -952,10 +953,13 @@ void update_nice(void)
 struct thread *
 get_child_thread(tid_t tid) {
 	struct thread *curr_thread = thread_current();
-	for (struct list_elem *e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
-		struct thread *child_thread = list_entry(e, struct thread, child_elem);
-		if (child_thread->tid == tid) {
-			return child_thread;
+	if(!list_empty(&child_list))
+	{
+		for (struct list_elem *e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
+			struct thread *child_thread = list_entry(e, struct thread, child_elem);
+			if (child_thread->tid == tid) {
+				return child_thread;
+			}
 		}
 	}
 	return NULL;

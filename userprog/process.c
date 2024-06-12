@@ -33,6 +33,7 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+
 /* General process initializer for initd and other process. */
 /* 프로세스 초기화 함수는 새로운 프로세스를 생성하고 초기화하는 역할을 합니다.
  * 이 함수는 "initd" 프로세스뿐만 아니라 다른 프로세스를 생성할 때도 사용될 수 있습니다. */
@@ -260,6 +261,8 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	/* 그런 다음 바이너리를 로드합니다. */
 	success = load (file_name, &_if);
+	// if (lock_held_by_current_thread(&filesys_lock))
+	// 	lock_release(&filesys_lock);
 	// sema_up(&thread_current()->load);
 
 	/* If load failed, quit. */
@@ -303,7 +306,8 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX: process_wait을 구현하기 전에 여기에 무한 루프를 추가하는 것을
 	 * XXX: 권장합니다. */
 	struct thread *child_thread = get_child_thread(child_tid);
-	if (child_thread == NULL) 	return -1;
+
+	if(!child_thread) return -1;
 	
 	sema_down(&child_thread->when_use_wait_other_sema);
 	list_remove(&child_thread->child_elem);
@@ -325,7 +329,10 @@ process_exit (void) {
 	 * TODO: 프로세스 종료 메시지를 구현합니다 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 자원 정리를 구현하는 것을 권장합니다. */
 	// process_cleanup ();
-	
+	// for (size_t i = 2; i < INT8_MAX; i++) {
+	// 	if (curr->fd_table[i] != NULL) 
+	// 		file_close(curr->fd_table[i]);
+	// }
 	file_close(curr->running_file);
 	process_cleanup ();
 	
@@ -478,12 +485,14 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	/* 실행 파일을 엽니다. */
+	if (!lock_held_by_current_thread(&filesys_lock))
+		lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
 	}
-
+	t->running_file = file;
 	/* Read and verify executable header. */
 	/* 실행 파일 헤더를 읽고 검증합니다. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -555,8 +564,7 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
-	t->running_file = file;
-	file_deny_write(file);
+	
 	/* Set up stack. */
 	/* 스택 설정 */
 	if (!setup_stack (if_))
@@ -610,11 +618,17 @@ load (const char *file_name, struct intr_frame *if_) {
 	if_->rsp -= sizeof(void *);
 	*(void **)if_->rsp = NULL;
 
+	
+	file_deny_write(file);
 	success = true;
+	if (lock_held_by_current_thread(&filesys_lock))
+		lock_release(&filesys_lock);
 	return success;
 done:
 	/* We arrive here whether the load is successful or not. */
 	/* 로드가 성공했든 실패했든 여기에 도착합니다. */
+	if (lock_held_by_current_thread(&filesys_lock))
+		lock_release(&filesys_lock);
 	file_close (file);
 	return success;
 }

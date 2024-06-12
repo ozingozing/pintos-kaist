@@ -30,7 +30,7 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
-#define USERPROG
+// #define USERPROG
 
 /* A kernel thread or user process.
  *
@@ -133,6 +133,7 @@ struct thread {
 
 	struct intr_frame *pre_if; //이전 if정보
 	struct file *running_file;
+	bool terminated;
 };
 
 
@@ -212,5 +213,7 @@ void update_nice();
 void update_donation_list(struct lock *_lock);
 
 struct thread *get_child_thread(tid_t tid);
+
+void preemption (void);
 
 #endif /* threads/thread.h */

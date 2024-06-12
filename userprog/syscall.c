@@ -37,6 +37,9 @@ void sys_seek (int fd, unsigned position);
 unsigned sys_tell (int fd);
 int sys_exec (const char *cmd_line);
 
+
+void lock_acquire_if_available(const struct lock *lock);
+void lock_release_if_available(const struct lock *lock);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -64,7 +67,8 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
-	lock_init(&local_lock);
+	lock_init(&filesys_lock);
+	
 }
 
 /* The main system call interface */
@@ -151,28 +155,30 @@ bool sys_create(const char *file, unsigned initial_size)
 	check_address(file);
 	if(!file_is_valid(file))
 		sys_exit(-1);
-	return filesys_create(file, initial_size);
+	lock_acquire_if_available(&filesys_lock);
+	bool result = filesys_create(file, initial_size);
+	lock_release_if_available(&filesys_lock);
+	return result;
 }
 
 
 /* file 열기 */
 int sys_open(const char *file)
 {
+	
 	check_address((void *)file);
 
-	if(!file_is_valid(file))
-	{
-		sys_exit(-1);
+	lock_acquire_if_available(&filesys_lock);
+	struct file *f = filesys_open(file);
+	lock_release_if_available(&filesys_lock);
+
+	if(f == NULL) {
 		return -1;
 	}
-
-	struct file *f = filesys_open(file);
-
-	if(f == NULL)
-		return -1;
 	int fd =  add_file_to_fd_table(f);
-	if(fd == -1 )
+	if(fd == -1)
 		file_close(f);
+
 	return fd;
 }
 
@@ -195,67 +201,150 @@ int sys_filesize (int fd)
 int sys_read (int fd, void *buffer, unsigned length)
 {
 	check_address(buffer);
+	// lock_acquire(&filesys_lock);
 	if(!fd_is_valid(fd))
 	{
+		// lock_release(&filesys_lock);
 		sys_exit(-1);
 		return -1;
 	}
 
 
-    if (fd == STDIN_FILENO)//표준입력 받기
-	{
-        unsigned i;
-        for (i = 0; i < length; i++)
-		{
-            ((uint8_t *)buffer)[i] = input_getc();
-        }
-        return i;
-    } 
-	else if(fd == STDOUT_FILENO) 
-		return -1;
-	else if (fd > 1 && fd < INT8_MAX) 
-	{
-        // 파일에서 읽기
-        struct file *file = get_file_from_fd(fd);
-        if (file == NULL)
-			 return -1;
-        // lock_acquire(&local_lock);
-		int bytes_read = file_read(file, buffer, length);
-		// lock_release(&local_lock);
-        if (bytes_read < 0)
-			return -1;
+	// lock_acquire(&filesys_lock);
+	unsigned i;
 
-        return bytes_read;
-    }
-    return -1;  // 기본적으로 실패 반환
+	switch (fd)
+	{
+	case STDIN_FILENO:
+		lock_acquire_if_available(&filesys_lock);
+        i = input_getc();
+		lock_release_if_available(&filesys_lock);
+		break;
+	case STDOUT_FILENO:
+		i = -1;
+		break;
+
+	default:
+		{
+			// 파일에서 읽기
+        	struct file *file = get_file_from_fd(fd);
+        	if (file == NULL)
+			{
+				printf("sys_read()파일이 없음\n");
+				// lock_release(&filesys_lock);
+				return -1;
+			}
+			lock_acquire_if_available(&filesys_lock);
+			i = file_read(file, buffer, length);
+			lock_release_if_available(&filesys_lock);
+		}
+		break;
+	}
+	// lock_release(&filesys_lock);
+	return i;
+    // if (fd == STDIN_FILENO)//표준입력 받기
+	// {
+    //     unsigned i;
+	// 	lock_acquire(&filesys_lock);
+    //     for (i = 0; i < length; i++)
+	// 	{
+    //         ((uint8_t *)buffer)[i] = input_getc();
+    //     }
+	// 	lock_release(&filesys_lock);
+    //     return i;
+    // } 
+	// else if(fd == STDOUT_FILENO) {
+	// 	// lock_release(&filesys_lock);
+	// 	return -1;
+	// }
+	// else if (fd > 1 && fd < INT8_MAX) 
+	// {
+    //     // 파일에서 읽기
+    //     struct file *file = get_file_from_fd(fd);
+    //     if (file == NULL){
+	// 		// lock_release(&filesys_lock);
+	// 		return -1;
+	// 	}
+    //     lock_acquire(&filesys_lock);
+	// 	int bytes_read = file_read(file, buffer, length);
+	// 	lock_release(&filesys_lock);
+    //     if (bytes_read < 0) {
+	// 		// lock_release(&filesys_lock);
+	// 		return -1;
+	// 	}
+	// 	// lock_release(&filesys_lock);
+    //     return bytes_read;
+    // }
+	// // lock_release(&filesys_lock);
+    // return -1;  // 기본적으로 실패 반환
 }
 
 /* file 쓰기 */
 int sys_write(int fd, const void *buffer, unsigned size)
 {
 	check_address(buffer);
+	// lock_acquire(&filesys_lock);
 	if(!fd_is_valid(fd))
 	{
+		// lock_release(&filesys_lock);
 		sys_exit(-1);
 		return -1;
 	}
 
-	if(fd == STDIN_FILENO)//0이면 표준 입력이니 -1 오류 리턴
-		return -1; 
-	else if (fd == STDOUT_FILENO) //1이면 표준출력
+	
+
+	switch (fd)
 	{
-		putbuf(buffer, size);
-		return size;
-	}
-	else
-	{
-		struct file *f = get_file_from_fd(fd);
-		if(f == NULL)
-			return -1;
+	case STDIN_FILENO:
+		size = -1;
+		break;
 		
-		return file_write(f, buffer, size);
+	case STDOUT_FILENO:
+		lock_acquire_if_available(&filesys_lock);
+		putbuf(buffer, size);
+		lock_release_if_available(&filesys_lock);
+		break;
+
+	default:
+        {
+			lock_acquire_if_available(&filesys_lock);
+            struct file *f = get_file_from_fd(fd);
+            if (f == NULL) {
+                // lock_release(&filesys_lock);
+                return -1;
+            }
+            size = file_write(f, buffer, size);
+			lock_release_if_available(&filesys_lock);
+        }
+        break;
 	}
-	return -1;
+	return size;
+
+	// if(fd == STDIN_FILENO) {//0이면 표준 입력이니 -1 오류 리턴
+	// 	// lock_release(&filesys_lock);
+	// 	return -1; 
+	// }
+	// else if (fd == STDOUT_FILENO) //1이면 표준출력
+	// {
+	// 	lock_acquire(&filesys_lock);
+	// 	putbuf(buffer, size);
+	// 	lock_release(&filesys_lock);
+	// 	return size;
+	// }
+	// else
+	// {
+	// 	struct file *f = get_file_from_fd(fd);
+	// 	if(f == NULL) {
+	// 		// lock_release(&filesys_lock);
+	// 		return -1;
+	// 	}
+	// 	lock_acquire(&filesys_lock);
+	// 	int write_byte = file_write(f, buffer, size);
+	// 	lock_release(&filesys_lock);
+	// 	return write_byte;
+	// }
+	// // lock_release(&filesys_lock);
+	// return -1;
 }
 
 /* seek 시스템 콜은 파일의 현재 읽기/쓰기 위치를 
@@ -290,8 +379,10 @@ void sys_close(int fd)
 	struct file *f = get_file_from_fd(fd);
 	if(f != NULL)
 	{
+		lock_acquire(&filesys_lock);
 		file_close(f);
 		remove_fd(fd);
+		lock_release(&filesys_lock);
 	}
 }
 
@@ -320,8 +411,10 @@ bool sys_remove (const char *file)
 	check_address(file);
 	if(!file_is_valid(file))
 		sys_exit(-1);
-
-	return filesys_remove(file);
+	lock_acquire_if_available(&filesys_lock);
+	bool result = filesys_remove(file);
+	lock_release_if_available(&filesys_lock);
+    return result;
 }
 
 
@@ -331,10 +424,18 @@ pid_t fork (const char *thread_name)
 }
 
 int sys_exec (const char *cmd_line) {
-	char *temp = palloc_get_page(0);
+	char *temp = palloc_get_page(PAL_ZERO);
 	strlcpy(temp, cmd_line, strlen(cmd_line) + 1);
-	// sema_down(&thread_current()->load);
-	return process_exec(temp);
+	// // if (!lock_held_by_current_thread(&filesys_lock))
+	// 	lock_acquire(&filesys_lock);
+	int result = -1;
+	if ((result = process_exec(temp)) == -1)
+	{
+		sys_exit(-1);
+	}
+	// // if (lock_held_by_current_thread(&filesys_lock))
+	// 	lock_release(&filesys_lock);
+	return result;
 }
 
 
@@ -370,6 +471,7 @@ int add_file_to_fd_table (struct file *file)
     for (int i = 2; i < INT8_MAX; i++) {
         if (t->fd_table[i] == NULL) {
             t->fd_table[i] = file;
+			t->fd = i;
             return i;
         }
     }
@@ -396,5 +498,19 @@ bool file_is_valid(char *file)
 {
 	if(file == "" || file == NULL) return false;
 	else return true;
+}
+
+
+
+void lock_acquire_if_available(const struct lock *lock) {
+	if (!lock_held_by_current_thread(lock)) {
+		lock_acquire(lock);
+	}
+}
+
+void lock_release_if_available(const struct lock *lock) {
+	if (lock_held_by_current_thread(lock)) {
+		lock_release(lock);
+	}
 }
 /* *********************************** */

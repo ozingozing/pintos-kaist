@@ -307,7 +307,12 @@ process_wait (tid_t child_tid UNUSED) {
 	 * XXX: 권장합니다. */
 	struct thread *child_thread = get_child_thread(child_tid);
 
-	if(!child_thread) return -1;
+	if(!child_thread)
+	{
+		if (!lock_held_by_current_thread(&filesys_lock))
+			lock_acquire(&filesys_lock);
+		return -1;
+	}
 	
 	sema_down(&child_thread->when_use_wait_other_sema);
 	list_remove(&child_thread->child_elem);
@@ -335,9 +340,6 @@ process_exit (void) {
 	// }
 	file_close(curr->running_file);
 	process_cleanup ();
-	
-	sema_up(&curr->when_use_wait_other_sema);
-	sema_down(&curr->when_use_free_curr_sema);
 }
 
 /* Free the current process's resources. */
@@ -485,8 +487,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	/* 실행 파일을 엽니다. */
-	// if (!lock_held_by_current_thread(&filesys_lock))
-	// 	lock_acquire(&filesys_lock);
+	if (!lock_held_by_current_thread(&filesys_lock))
+		lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);

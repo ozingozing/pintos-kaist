@@ -254,7 +254,7 @@ thread_create (const char *name, int priority,
 	if(aux != NULL)
 	{
 		list_push_front(&child_list, &t->child_elem);
-		t->fd_table = palloc_get_multiple(PAL_USER | PAL_ZERO, INT8_MAX);
+		t->fd_table = palloc_get_page(PAL_ZERO);
 		t->terminated = false;
 	}
 	/* Add to run queue. */
@@ -355,6 +355,8 @@ thread_exit (void) {
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
+	sema_up(&thread_current()->when_use_wait_other_sema);
+	sema_down(&thread_current()->when_use_free_curr_sema);
 	list_remove(&thread_current()->all_elem);
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();

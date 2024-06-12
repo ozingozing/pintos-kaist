@@ -485,8 +485,8 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	/* 실행 파일을 엽니다. */
-	if (!lock_held_by_current_thread(&filesys_lock))
-		lock_acquire(&filesys_lock);
+	// if (!lock_held_by_current_thread(&filesys_lock))
+	// 	lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
@@ -621,15 +621,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	
 	file_deny_write(file);
 	success = true;
-	if (lock_held_by_current_thread(&filesys_lock))
-		lock_release(&filesys_lock);
-	return success;
 done:
 	/* We arrive here whether the load is successful or not. */
 	/* 로드가 성공했든 실패했든 여기에 도착합니다. */
 	if (lock_held_by_current_thread(&filesys_lock))
 		lock_release(&filesys_lock);
-	file_close (file);
 	return success;
 }
 

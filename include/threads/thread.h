@@ -134,6 +134,7 @@ struct thread {
 	struct intr_frame *pre_if; //이전 if정보
 	struct file *running_file;
 	bool terminated;
+	struct list child_list;
 };
 
 
@@ -146,7 +147,7 @@ static struct list all_list;
 /* Thread destruction requests */
 static struct list destruction_req;
 
-static struct list child_list;
+
 
 
 /* If false (default), use round-robin scheduler.
@@ -186,7 +187,7 @@ int64_t thread_get_wakeup_tick (void);
 void do_iret (struct intr_frame *tf);
 
 void thread_sleep(int64_t end_tick);
-void thread_check_sleep_list();
+void thread_check_sleep_list(int64_t tick);
 
 /* 우선순위 내림차순 정렬*/
 bool priority_more (const struct list_elem *a_, const struct list_elem *b_, void *aux UNUSED);

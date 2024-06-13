@@ -338,8 +338,14 @@ process_exit (void) {
 	// 	if (curr->fd_table[i] != NULL) 
 	// 		file_close(curr->fd_table[i]);
 	// }
+	for (size_t i = 2; i < INT8_MAX; i++) {
+		if (curr->fd_table[i] != NULL) 
+			file_close(curr->fd_table[i]);
+	}
+	
+	palloc_free_multiple(curr->fd_table, 1);
 	file_close(curr->running_file);
-	process_cleanup ();
+	process_cleanup ();;
 }
 
 /* Free the current process's resources. */
@@ -487,7 +493,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	/* 실행 파일을 엽니다. */
-	if (!lock_held_by_current_thread(&filesys_lock))
+	// if (!lock_held_by_current_thread(&filesys_lock))
 		lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -626,7 +632,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	/* 로드가 성공했든 실패했든 여기에 도착합니다. */
-	if (lock_held_by_current_thread(&filesys_lock))
+	// if (lock_held_by_current_thread(&filesys_lock))
 		lock_release(&filesys_lock);
 	return success;
 }

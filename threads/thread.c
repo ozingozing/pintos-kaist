@@ -136,7 +136,7 @@ thread_init (void) {
 	list_init(&sleep_list);
 	list_init (&destruction_req);
 	list_init(&all_list);
-	list_init(&child_list);
+	// list_init(&child_list);
 	
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -253,10 +253,10 @@ thread_create (const char *name, int priority,
 	}
 	if(aux != NULL)
 	{
-		list_push_front(&child_list, &t->child_elem);
+	}
+		list_push_front(&thread_current()->child_list, &t->child_elem);
 		t->fd_table = palloc_get_page(PAL_ZERO);
 		t->terminated = false;
-	}
 	/* Add to run queue. */
 	thread_unblock (t);
 	
@@ -354,9 +354,9 @@ thread_exit (void) {
 
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
-	intr_disable ();
 	sema_up(&thread_current()->when_use_wait_other_sema);
 	sema_down(&thread_current()->when_use_free_curr_sema);
+	intr_disable ();
 	list_remove(&thread_current()->all_elem);
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
@@ -380,15 +380,23 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	struct thread *curr = thread_current (); // 현재 실행중인 쓰레드
-	if(!thread_mlfqs){
-		curr->origin_priority = new_priority; // origin_priority 업데이트
-		update_priority(curr); // 변경된 origin_priority와 도네이션 리스트 비교
-	}
-	else{
-		curr->priority = new_priority;
+	
+	thread_current()->priority = new_priority;
+	if(!thread_mlfqs)
+	{
+		thread_current()->origin_priority = new_priority;
+		update_priority(thread_current());
 		preemption();
 	}
+	// struct thread *curr = thread_current (); // 현재 실행중인 쓰레드
+	// if(!thread_mlfqs){
+	// 	curr->origin_priority = new_priority; // origin_priority 업데이트
+	// 	update_priority(curr); // 변경된 origin_priority와 도네이션 리스트 비교
+	// }
+	// else{
+	// 	curr->priority = new_priority;
+	// 	preemption();
+	// }
 }
 
 /* Returns the current thread's priority. */
@@ -584,6 +592,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	
 	t->origin_priority = priority; // 원래의 우선순위 설정
 	list_init(&t->donations); // 기부해준 쓰레드들을 저장할 쓰레드 초기화
+	list_init(&t->child_list);
 	t->wait_on_lock = NULL; // 초기화
 	t->exit_status = 1; // 종료 상태 0이면 잘 끝남 그 외에는 잘 안끝나서 추가 행동 필요
 	t->fd = 2; //0표준입력 1표준출력 2는 표준에러인데 pintos에는 없음
@@ -773,42 +782,56 @@ allocate_tid (void) {
 }
 
 void thread_sleep(int64_t end_tick){
+	struct thread* cur = thread_current();
 	enum intr_level old_level;
-	struct thread *cur = thread_current();
 
-	ASSERT(!intr_context());
-	ASSERT(cur != idle_thread);
-
-	old_level = intr_disable();
-	cur->wakeup_tick = end_tick;
-
-	lock_acquire(&sleep_lock);
-	list_insert_ordered(&sleep_list, &cur->elem, tick_less, NULL); 
-	lock_release(&sleep_lock); 
-
-	thread_block();
-
-	intr_set_level(old_level);
+  	ASSERT (!intr_context ());
+	if (cur != idle_thread) {
+		cur->wakeup_tick = end_tick;
+		old_level = intr_disable();
+		list_insert_ordered(&sleep_list, &cur->elem, tick_less, NULL);
+		thread_block();
+		intr_set_level(old_level);
+	}
 }
 
-void thread_check_sleep_list(){
+void thread_check_sleep_list(int64_t tick){
 	enum intr_level old_level;
-	struct thread *t;
-	old_level = intr_disable();
-	int64_t ticks = timer_ticks();
+	struct list_elem *e = list_begin(&sleep_list);
+	while (e != list_end(&sleep_list))
+	{
+		struct thread *t = list_entry(e, struct thread, elem);
+
+		if (t->wakeup_tick <= tick) {
+			old_level = intr_disable();
+			list_pop_front(&sleep_list);
+			intr_set_level(old_level);
+			thread_unblock(t);
+			if (!list_empty(&sleep_list))
+				e = list_front(&sleep_list);
+			else
+				break;
+		} else {
+			break;
+		}
+	}
+	
+	
+	
+	
+	// struct thread *t;
+	// int64_t ticks = timer_ticks();
 	
 
-	// lock_acquire(&sleep_lock);
-    while (!list_empty(&sleep_list)) { // 슬립 리스트에서 꺠울 쓰레드 탐색
-        t = list_entry(list_front(&sleep_list), struct thread, elem); // 슬립 리스트 맨 앞 쓰레드 조회
-        if (t->wakeup_tick > ticks) { // 쓰레드가 현재 글로벌 틱보다 크다면 탐색 종료
-            break;
-        }
-        list_pop_front(&sleep_list); // 쓰레드가 현재 글로벌 틱보다 작거나 같다면 슬립 리스트에서 제거
-        thread_unblock(t); // 해당 쓰레드 언블록
-    }
-	// lock_release(&sleep_lock);
-	intr_set_level(old_level);
+	// // lock_acquire(&sleep_lock);
+    // while (!list_empty(&sleep_list)) { // 슬립 리스트에서 꺠울 쓰레드 탐색
+    //     t = list_entry(list_front(&sleep_list), struct thread, elem); // 슬립 리스트 맨 앞 쓰레드 조회
+    //     if (t->wakeup_tick > ticks) { // 쓰레드가 현재 글로벌 틱보다 크다면 탐색 종료
+    //         break;
+    //     }
+    //     list_pop_front(&sleep_list); // 쓰레드가 현재 글로벌 틱보다 작거나 같다면 슬립 리스트에서 제거
+    //     thread_unblock(t); // 해당 쓰레드 언블록
+    // }
 }
 
 /* 쓰레드 wakeup_tick 오름차순 정렬 함수*/
@@ -954,15 +977,15 @@ void update_nice(void)
 /* =========== Project 2 - Custom Function =========== */
 struct thread *
 get_child_thread(tid_t tid) {
-	struct thread *curr_thread = thread_current();
-	if(!list_empty(&child_list))
+	struct list *cl = &thread_current()->child_list;
+	if (list_empty(cl)) return NULL;
+	struct list_elem *e;
+	struct thread *cthread;
+	for (e = list_begin(cl); e != list_end(cl); e = list_next(e))
 	{
-		for (struct list_elem *e = list_begin(&child_list); e != list_end(&child_list); e = list_next(e)) {
-			struct thread *child_thread = list_entry(e, struct thread, child_elem);
-			if (child_thread->tid == tid) {
-				return child_thread;
-			}
-		}
+		cthread = list_entry(e, struct thread, child_elem);
+		if (cthread->tid == tid)
+			return cthread;
 	}
 	return NULL;
 }

@@ -343,7 +343,6 @@ process_exit (void) {
 			file_close(curr->fd_table[i]);
 	}
 	
-	palloc_free_multiple(curr->fd_table, 1);
 	file_close(curr->running_file);
 	process_cleanup ();;
 }
@@ -480,7 +479,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	//argv배열에 파라미터 삽입
 	char *token, *save_ptr;
 	int argc = 0;
-	char **argv[200];
+	char **argv[50];
 	for(token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr))
 		argv[argc++] = token;
 
@@ -493,7 +492,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* Open executable file. */
 	/* 실행 파일을 엽니다. */
-	// if (!lock_held_by_current_thread(&filesys_lock))
+	if (!lock_held_by_current_thread(&filesys_lock))
 		lock_acquire(&filesys_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
@@ -632,7 +631,7 @@ load (const char *file_name, struct intr_frame *if_) {
 done:
 	/* We arrive here whether the load is successful or not. */
 	/* 로드가 성공했든 실패했든 여기에 도착합니다. */
-	// if (lock_held_by_current_thread(&filesys_lock))
+	if (lock_held_by_current_thread(&filesys_lock))
 		lock_release(&filesys_lock);
 	return success;
 }

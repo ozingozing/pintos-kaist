@@ -468,13 +468,14 @@ struct file *get_file_from_fd (int fd)
 int add_file_to_fd_table (struct file *file)
 {
 	struct thread *t = thread_current();
-    for (int i = 2; i < INT8_MAX; i++) {
+    for (int i = t->fd; i < INT8_MAX; i++) {
         if (t->fd_table[i] == NULL) {
             t->fd_table[i] = file;
 			t->fd = i;
             return i;
         }
     }
+	t->fd = INT8_MAX;
     return -1;
 }
 

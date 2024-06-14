@@ -206,6 +206,8 @@ __do_fork (void *aux) {
     if (!pml4_for_each(parent->pml4, duplicate_pte, parent))
 		goto error;
 #endif
+	if(current->fd == INT8_MAX)
+		goto error;
 	/* TODO: Your code goes here.
 	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
@@ -231,6 +233,7 @@ __do_fork (void *aux) {
 error:
 	current->exit_status = TID_ERROR;
 	sema_up(&current->fork_sema);
+	file_close(current->running_file);
 	sys_exit(TID_ERROR);
 }
 
@@ -309,8 +312,6 @@ process_wait (tid_t child_tid UNUSED) {
 
 	if(!child_thread)
 	{
-		if (!lock_held_by_current_thread(&filesys_lock))
-			lock_acquire(&filesys_lock);
 		return -1;
 	}
 	
@@ -333,18 +334,43 @@ process_exit (void) {
 	/* TODO: 여기에 코드를 작성하세요.
 	 * TODO: 프로세스 종료 메시지를 구현합니다 (project2/process_termination.html 참조).
 	 * TODO: 여기에 프로세스 자원 정리를 구현하는 것을 권장합니다. */
-	// process_cleanup ();
+	/* 파일 디스크립터 테이블 정리 */
+    if (curr->fd_table != NULL) {
+        for (size_t i = 2; i < INT8_MAX; i++) {
+            if (curr->fd_table[i] != NULL) {
+                file_close(curr->fd_table[i]);
+            }
+        }
+        
+		palloc_free_multiple(curr->fd_table, 2);
+    }
+
+	
+    /* 실행 중인 파일 닫기 */
+    if (curr->running_file != NULL) {
+        file_close(curr->running_file);
+    }
+
+    /* 기타 리소스 정리 */
+    process_cleanup ();
+
+	
+
+    /* 종료 상태 설정 및 세마포어 해제 */
+    sema_up(&curr->when_use_wait_other_sema);
+    sema_down(&curr->when_use_free_curr_sema);
+	// if (curr->running_file)
+	// 	file_close(curr->running_file);
 	// for (size_t i = 2; i < INT8_MAX; i++) {
 	// 	if (curr->fd_table[i] != NULL) 
 	// 		file_close(curr->fd_table[i]);
 	// }
-	for (size_t i = 2; i < INT8_MAX; i++) {
-		if (curr->fd_table[i] != NULL) 
-			file_close(curr->fd_table[i]);
-	}
-	
-	file_close(curr->running_file);
-	process_cleanup ();;
+
+
+	// palloc_free_page(curr->fd_table);
+	// process_cleanup ();
+	// sema_up(&curr->when_use_wait_other_sema);
+	// sema_down(&curr->when_use_free_curr_sema);
 }
 
 /* Free the current process's resources. */

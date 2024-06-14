@@ -133,7 +133,6 @@ struct thread {
 
 	struct intr_frame *pre_if; //이전 if정보
 	struct file *running_file;
-	bool terminated;
 	struct list child_list;
 };
 

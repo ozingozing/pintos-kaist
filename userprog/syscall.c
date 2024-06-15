@@ -82,7 +82,7 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	int sys_number = f->R.rax;
-
+	thread_current()->rsp = f->rsp;
 	switch (sys_number)
 	{
 	case SYS_HALT: 							// 운영체제 종료
@@ -134,7 +134,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// printf("thread name:%s\n",t->name);
 	// thread_exit ();
 }
-
+#ifdef VM
 /*User memory access는 이후 시스템 콜 구현할 때 메모리에 접근할 텐데, 
 이때 접근하는 메모리 주소가 유저 영역인지 커널 영역인지를 체크*/
 void check_address (void *addr)
@@ -144,10 +144,26 @@ void check_address (void *addr)
 	/*포인터가 가리키는 주소가 유저영역의 주소인지 확인 
 	|| 포인터가 가리키는 주소가 유저 영역 내에 있지만 
 	페이지로 할당하지 않은 영역일수도 잇으니 체크*/
-	if (!is_user_vaddr(addr) || addr == NULL || pml4_get_page(t->pml4, addr) == NULL){ 	
+	if (is_kernel_vaddr(addr) || addr == NULL){ 	
 		sys_exit(-1);	// 잘못된 접근일 경우 프로세스 종료
 	}
 }
+#else
+/*User memory access는 이후 시스템 콜 구현할 때 메모리에 접근할 텐데, 
+이때 접근하는 메모리 주소가 유저 영역인지 커널 영역인지를 체크*/
+void check_address (void *addr)
+{
+	struct thread *t = thread_current();
+	
+	/*포인터가 가리키는 주소가 유저영역의 주소인지 확인 
+	|| 포인터가 가리키는 주소가 유저 영역 내에 있지만 
+	페이지로 할당하지 않은 영역일수도 잇으니 체크*/
+	if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(t->pml4, addr) == NULL){ 	
+		sys_exit(-1);	// 잘못된 접근일 경우 프로세스 종료
+	}
+}
+#endif
+
 
 /* file 만들기 */
 bool sys_create(const char *file, unsigned initial_size)
@@ -226,6 +242,14 @@ int sys_read (int fd, void *buffer, unsigned length)
 
 	default:
 		{
+#ifdef VM
+			/* project 3 jihun : 
+				프로젝트 3부턴 file_read함수 호출전에
+				그 파일의 권한을 확인해줘야하는 작업이 필요 */
+			struct page *page = spt_find_page(&thread_current()->spt, buffer);
+			if(page != NULL && !page->writable)
+				sys_exit(-1);
+#endif
 			// 파일에서 읽기
         	struct file *file = get_file_from_fd(fd);
         	if (file == NULL)
@@ -397,9 +421,7 @@ void sys_exit(int status)
 {
 	struct thread *t = thread_current();
 	t->exit_status = status;
-	#ifdef USERPROG 
 	printf("%s: exit(%d)\n", t->name, t->exit_status);
-	#endif
 	thread_exit();
 }
 
@@ -426,15 +448,17 @@ pid_t fork (const char *thread_name)
 int sys_exec (const char *cmd_line) {
 	char *temp = palloc_get_page(PAL_ZERO);
 	strlcpy(temp, cmd_line, strlen(cmd_line) + 1);
-	// if (!lock_held_by_current_thread(&filesys_lock))
-		// lock_acquire(&filesys_lock);
+	if (!lock_held_by_current_thread(&filesys_lock))
+		lock_acquire(&filesys_lock);
 	int result = -1;
 	if ((result = process_exec(temp)) == -1)
 	{
+		if (lock_held_by_current_thread(&filesys_lock))
+			lock_release(&filesys_lock);
 		sys_exit(-1);
 	}
-	// if (lock_held_by_current_thread(&filesys_lock))
-	// 	lock_release(&filesys_lock);
+	if (lock_held_by_current_thread(&filesys_lock))
+		lock_release(&filesys_lock);
 	return result;
 }
 

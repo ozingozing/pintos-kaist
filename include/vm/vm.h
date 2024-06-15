@@ -152,12 +152,12 @@ bool hash_less_func_impl (const struct hash_elem *a_, const struct hash_elem *b_
 
 struct lazy_load_info {
 	struct file *file;
-	off_t ofs;
+	size_t ofs;
 	size_t read_bytes;
 	size_t zero_bytes;
 };
 
 
 struct list frame_table;
-
+struct lock frame_lock;
 #endif  /* VM_VM_H */

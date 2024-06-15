@@ -134,6 +134,8 @@ struct thread {
 	struct intr_frame *pre_if; //이전 if정보
 	struct file *running_file;
 	struct list child_list;
+
+	uint64_t rsp;
 };
 
 

@@ -24,6 +24,10 @@
         "flags.h": "c",
         "intr-stubs.h": "c",
         "init.h": "c",
-        "filesys.h": "c"
+        "filesys.h": "c",
+        "vm.h": "c",
+        "inspect.h": "c",
+        "mmu.h": "c",
+        "malloc.h": "c"
     }
 }

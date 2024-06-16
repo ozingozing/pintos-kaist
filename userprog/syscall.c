@@ -13,33 +13,11 @@
 #include "userprog/process.h"
 #include "threads/palloc.h"
 
-struct lock local_lock;
+#define VM
+#ifdef VM
+#include "vm/file.h"
+#endif
 
-void syscall_entry (void);
-void syscall_handler (struct intr_frame *);
-void check_address (void *addr);
-bool fd_is_valid(int fd);
-bool file_is_valid(char *file);
-
-struct file *get_file_from_fd (int fd);
-int add_file_to_fd_table (struct file *file);
-
-bool sys_create(const char *file, unsigned initial_size);
-int sys_open(const char *file);
-int sys_filesize (int fd);
-int sys_read (int fd, void *buffer, unsigned length);
-int sys_write(int fd, const void *buffer, unsigned size);
-bool sys_remove (const char *file);
-void sys_close(int fd);
-void sys_exit(int status);
-void sys_halt(void);
-void sys_seek (int fd, unsigned position);
-unsigned sys_tell (int fd);
-int sys_exec (const char *cmd_line);
-
-
-void lock_acquire_if_available(const struct lock *lock);
-void lock_release_if_available(const struct lock *lock);
 /* System call.
  *
  * Previously system call services was handled by the interrupt handler
@@ -128,11 +106,15 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	case SYS_CLOSE:							// 파일 닫기
 		sys_close(f->R.rdi);
 		break;
+#ifdef VM
+	case SYS_MMAP:
+		f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
+		break;
+#endif
 	}
-	// printf ("system call!\n");
-	// struct thread *t = thread_current();
-	// printf("thread name:%s\n",t->name);
-	// thread_exit ();
 }
 #ifdef VM
 /*User memory access는 이후 시스템 콜 구현할 때 메모리에 접근할 텐데, 
@@ -255,7 +237,6 @@ int sys_read (int fd, void *buffer, unsigned length)
         	if (file == NULL)
 			{
 				printf("sys_read()파일이 없음\n");
-				// lock_release(&filesys_lock);
 				return -1;
 			}
 			lock_acquire_if_available(&filesys_lock);
@@ -264,53 +245,15 @@ int sys_read (int fd, void *buffer, unsigned length)
 		}
 		break;
 	}
-	// lock_release(&filesys_lock);
 	return i;
-    // if (fd == STDIN_FILENO)//표준입력 받기
-	// {
-    //     unsigned i;
-	// 	lock_acquire(&filesys_lock);
-    //     for (i = 0; i < length; i++)
-	// 	{
-    //         ((uint8_t *)buffer)[i] = input_getc();
-    //     }
-	// 	lock_release(&filesys_lock);
-    //     return i;
-    // } 
-	// else if(fd == STDOUT_FILENO) {
-	// 	// lock_release(&filesys_lock);
-	// 	return -1;
-	// }
-	// else if (fd > 1 && fd < INT8_MAX) 
-	// {
-    //     // 파일에서 읽기
-    //     struct file *file = get_file_from_fd(fd);
-    //     if (file == NULL){
-	// 		// lock_release(&filesys_lock);
-	// 		return -1;
-	// 	}
-    //     lock_acquire(&filesys_lock);
-	// 	int bytes_read = file_read(file, buffer, length);
-	// 	lock_release(&filesys_lock);
-    //     if (bytes_read < 0) {
-	// 		// lock_release(&filesys_lock);
-	// 		return -1;
-	// 	}
-	// 	// lock_release(&filesys_lock);
-    //     return bytes_read;
-    // }
-	// // lock_release(&filesys_lock);
-    // return -1;  // 기본적으로 실패 반환
 }
 
 /* file 쓰기 */
 int sys_write(int fd, const void *buffer, unsigned size)
 {
 	check_address(buffer);
-	// lock_acquire(&filesys_lock);
 	if(!fd_is_valid(fd))
 	{
-		// lock_release(&filesys_lock);
 		sys_exit(-1);
 		return -1;
 	}
@@ -334,7 +277,6 @@ int sys_write(int fd, const void *buffer, unsigned size)
 			lock_acquire_if_available(&filesys_lock);
             struct file *f = get_file_from_fd(fd);
             if (f == NULL) {
-                // lock_release(&filesys_lock);
                 return -1;
             }
             size = file_write(f, buffer, size);
@@ -343,32 +285,6 @@ int sys_write(int fd, const void *buffer, unsigned size)
         break;
 	}
 	return size;
-
-	// if(fd == STDIN_FILENO) {//0이면 표준 입력이니 -1 오류 리턴
-	// 	// lock_release(&filesys_lock);
-	// 	return -1; 
-	// }
-	// else if (fd == STDOUT_FILENO) //1이면 표준출력
-	// {
-	// 	lock_acquire(&filesys_lock);
-	// 	putbuf(buffer, size);
-	// 	lock_release(&filesys_lock);
-	// 	return size;
-	// }
-	// else
-	// {
-	// 	struct file *f = get_file_from_fd(fd);
-	// 	if(f == NULL) {
-	// 		// lock_release(&filesys_lock);
-	// 		return -1;
-	// 	}
-	// 	lock_acquire(&filesys_lock);
-	// 	int write_byte = file_write(f, buffer, size);
-	// 	lock_release(&filesys_lock);
-	// 	return write_byte;
-	// }
-	// // lock_release(&filesys_lock);
-	// return -1;
 }
 
 /* seek 시스템 콜은 파일의 현재 읽기/쓰기 위치를 
@@ -470,6 +386,42 @@ int wait(pid_t tid)
 }
 
 
+#ifdef VM
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset){
+	if(addr == NULL 
+	|| addr + length == NULL 
+	|| is_kernel_vaddr(addr) 
+	|| is_kernel_vaddr(addr + length))
+		return NULL;
+
+	if(pg_round_down(addr) != addr)
+		return NULL;
+
+	if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
+		return NULL;
+
+	if(pg_round_down(addr) != addr)
+		return NULL;
+
+	struct file *file = get_file_from_fd(fd);
+
+	if(file == NULL)
+		return NULL;
+
+	if(file_length(file) == 0 || length <= 0)
+		return NULL;
+
+	if(spt_find_page(&thread_current()->spt, pg_round_down(addr) != NULL))
+		return NULL;
+	
+	return do_mmap(addr, length, writable, file, offset);
+}
+void munmap (void *addr){
+	if(addr == NULL || is_kernel_vaddr(addr))
+		sys_exit(-1);
+	do_munmap(addr);
+}
+#endif
 
 
 

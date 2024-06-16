@@ -934,8 +934,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		aux_info->file = file;
 		aux_info->ofs = ofs;
-		aux_info->read_bytes = read_bytes;
-		aux_info->zero_bytes = zero_bytes;
+		aux_info->read_bytes = page_read_bytes;
+		aux_info->zero_bytes = page_zero_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		/* TODO: lazy_load_segment에 정보를 전달하기 위해 aux를 설정합니다. */

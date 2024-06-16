@@ -13,7 +13,7 @@
 #include "userprog/process.h"
 #include "threads/palloc.h"
 
-#define VM
+// #define VM
 #ifdef VM
 #include "vm/file.h"
 #endif
@@ -364,17 +364,17 @@ pid_t fork (const char *thread_name)
 int sys_exec (const char *cmd_line) {
 	char *temp = palloc_get_page(PAL_ZERO);
 	strlcpy(temp, cmd_line, strlen(cmd_line) + 1);
-	if (!lock_held_by_current_thread(&filesys_lock))
-		lock_acquire(&filesys_lock);
+	// if (!lock_held_by_current_thread(&filesys_lock))
+	// 	lock_acquire(&filesys_lock);
 	int result = -1;
 	if ((result = process_exec(temp)) == -1)
 	{
-		if (lock_held_by_current_thread(&filesys_lock))
-			lock_release(&filesys_lock);
+		// if (lock_held_by_current_thread(&filesys_lock))
+		// 	lock_release(&filesys_lock);
 		sys_exit(-1);
 	}
-	if (lock_held_by_current_thread(&filesys_lock))
-		lock_release(&filesys_lock);
+	// if (lock_held_by_current_thread(&filesys_lock))
+	// 	lock_release(&filesys_lock);
 	return result;
 }
 

@@ -183,6 +183,8 @@ vm_get_frame (void) {
 /* 스택 확장 */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	if(!vm_alloc_page(VM_ANON, addr , true) && !vm_claim_page(addr))
+		vm_dealloc_page(spt_find_page(&thread_current()->spt, addr));
 }
 
 /* Handle the fault on write_protected page */
@@ -203,19 +205,20 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if(addr == NULL || is_kernel_vaddr(addr))
 		return false;
 
+	uint64_t rsp = user ? f->rsp : thread_current()->rsp;
 	if(not_present)
 	{
 		if(page == NULL)	
 		{
-			if(addr < USER_STACK && addr > (thread_current()->rsp - 8))
+			if(pg_round_down(addr) >= (void*)MAX_STACK_BOTTOM && pg_round_down(addr) < USER_STACK && addr >= (rsp - 8))
 			{
-				PANIC("TODO");
+				vm_stack_growth(pg_round_down(addr));
+				return addr != NULL ? true : false;
 			}
 			else
 				return false;
 		}
 	}
-
 	if(write && !page->writable)
 		return false;
 
@@ -285,12 +288,12 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		if(VM_TYPE(type) == VM_UNINIT)
 		{
 			struct lazy_load_info *info = (struct lazy_load_info*)malloc(sizeof(struct lazy_load_info));
-			if(!vm_alloc_page_with_initializer(VM_ANON, upage, writable, src_page->uninit.init, src_page->uninit.aux))
+			if(!vm_alloc_page_with_initializer(page_get_type(src_page), upage, writable, src_page->uninit.init, src_page->uninit.aux))
 				return false;
 			continue;
 		}	
 
-		if(!vm_alloc_page(type, upage, writable))
+		if(!vm_alloc_page(page_get_type(src_page), upage, writable))
 			return false;
 		
 		if(!vm_claim_page(upage))

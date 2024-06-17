@@ -209,7 +209,7 @@ lock_init (struct lock *lock) {
 	lock->holder = NULL;
 	sema_init (&lock->semaphore, 1);
 }
-
+static void donate();
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -244,7 +244,7 @@ lock_acquire (struct lock *lock) {
    }
 
    sema_down (&lock->semaphore);
-	lock->holder = curr_thread;
+	lock->holder = thread_current();
    /*
    donation리스트는 첫 쓰레드가
    lock_aquire로 잠그고 들어가고

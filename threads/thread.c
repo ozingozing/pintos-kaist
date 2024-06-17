@@ -872,20 +872,40 @@ donation_priority_more (const struct list_elem *a_,
 void
 donate_priority(struct thread *holder, struct thread *receiver)
 {
-	enum intr_level old_level;
-	if(holder->priority < receiver->priority)
-		holder->priority = receiver->priority;
-	old_level = intr_disable();
+	/*TODO: 로직차이점 찾기*/
+	// enum intr_level old_level;
+	// if(holder->priority < receiver->priority)
+	// 	holder->priority = receiver->priority;
+	// old_level = intr_disable();
+	// list_push_front(&holder->donations, &receiver->d_elem);
+	// while (holder->wait_on_lock != NULL)
+	// {
+	// 	if(holder->wait_on_lock->holder->priority > holder->priority)
+	// 		break;
+	// 	holder->wait_on_lock->holder->priority = holder->priority;
+	// 	holder = holder->wait_on_lock->holder;
+	// }
+	// update_priority(holder);
+	// intr_set_level(old_level);
 	list_push_front(&holder->donations, &receiver->d_elem);
-	while (holder->wait_on_lock != NULL)
+	struct thread *doner = thread_current();
+	int cnt = 1;
+	// for (size_t i = 0; i < 8; i++)
 	{
-		if(holder->wait_on_lock->holder->priority > holder->priority)
-			break;
-		holder->wait_on_lock->holder->priority = holder->priority;
-		holder = holder->wait_on_lock->holder;
+		while (doner->wait_on_lock != NULL)
+		{
+			if (cnt++ >= 8) return;
+			struct thread *donatee = doner->wait_on_lock->holder;
+
+			if (donatee->priority < doner->priority) {
+				donatee->priority = doner->priority;
+				doner = donatee;
+			}
+			else {
+				break;
+			}
+		}
 	}
-	update_priority(holder);
-	intr_set_level(old_level);
 }
 
 void donate_priority_nested(struct thread *current_thread)

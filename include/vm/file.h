@@ -11,7 +11,9 @@ struct file_page {
 	size_t offset;
 	size_t read_bytes;
 	size_t zero_bytes;
+
 	bool writable;
+	bool has_next;
 };
 
 void vm_file_init (void);

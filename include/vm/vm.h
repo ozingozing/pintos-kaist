@@ -63,7 +63,9 @@ struct page {
 	/* Your implementation */
 	/* 사용자의 구현 */
 	struct hash_elem h_elem;
+
 	bool writable;
+	bool swapped;
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */

@@ -28,6 +28,7 @@
         "vm.h": "c",
         "inspect.h": "c",
         "mmu.h": "c",
-        "malloc.h": "c"
+        "malloc.h": "c",
+        "stdbool.h": "c"
     }
 }

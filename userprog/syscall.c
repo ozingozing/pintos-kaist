@@ -388,32 +388,23 @@ int wait(pid_t tid)
 
 #ifdef VM
 void *mmap (void *addr, size_t length, int writable, int fd, off_t offset){
-	if(addr == NULL 
-	|| addr + length == NULL 
-	|| is_kernel_vaddr(addr) 
-	|| is_kernel_vaddr(addr + length))
-		return NULL;
-
-	if(pg_round_down(addr) != addr)
-		return NULL;
-
-	if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
-		return NULL;
-
-	if(pg_round_down(addr) != addr)
-		return NULL;
+	// is addr 0 or length is 0
+	if(addr == NULL || addr + length == NULL || is_kernel_vaddr(addr) || is_kernel_vaddr(addr + length)) return NULL;
+	// addr is not page-aligned
+	if( pg_round_down(addr) != addr ) return NULL;
+	// file descriptor is not valid
+	if( fd == STDIN_FILENO || fd == STDOUT_FILENO ) return NULL;
+	// invalid offset
+	if ( pg_round_down(offset) != offset ) return NULL;
 
 	struct file *file = get_file_from_fd(fd);
+	// file is 없음
+	if( file == NULL ) return NULL;
+	// 파일의 길이가 0인 경우
+	if( file_length (file) == 0 || length <= 0 ) return NULL;
+	// is pre_allocated
+	if( spt_find_page(&thread_current()->spt, pg_round_down(addr)) != NULL) return NULL;
 
-	if(file == NULL)
-		return NULL;
-
-	if(file_length(file) == 0 || length <= 0)
-		return NULL;
-
-	if(spt_find_page(&thread_current()->spt, pg_round_down(addr) != NULL))
-		return NULL;
-	
 	return do_mmap(addr, length, writable, file, offset);
 }
 void munmap (void *addr){

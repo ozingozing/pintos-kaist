@@ -109,6 +109,13 @@ file_write (struct file *file, const void *buffer, off_t size) {
  * (Normally we'd grow the file in that case, but file growth is
  * not yet implemented.)
  * The file's current position is unaffected. */
+/* FILE의 FILE_OFS 오프셋부터 시작하여 
+ * BUFFER에서 SIZE 바이트를 FILE에 씁니다.
+ * 실제로 기록된 바이트 수를 반환하며, 파일 끝에 도달하면 
+ * SIZE보다 적을 수 있습니다.
+ * (일반적으로 이러한 경우 파일을 확장하겠지만, 
+ * 파일 확장은 아직 구현되지 않았습니다.)
+ * 파일의 현재 위치는 영향을 받지 않습니다. */
 off_t
 file_write_at (struct file *file, const void *buffer, off_t size,
 		off_t file_ofs) {

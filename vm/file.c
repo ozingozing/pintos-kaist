@@ -1,7 +1,10 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include "vm/vm.h"
-#include <string.h>
+#include "string.h"
+#include "threads/mmu.h"
+#include "devices/disk.h"
+
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
 static void file_backed_destroy (struct page *page);
@@ -39,18 +42,53 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+	struct file *file = file_page->file;
+
+	off_t ofs = file_page->offset;
+	int page_read_bytes = file_page->read_bytes;
+	int page_zero_bytes = file_page->zero_bytes;
+
+	file_seek(file, ofs);
+
+	page_read_bytes = (int)file_read(file, page->frame->kva, page_read_bytes);
+
+	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
+	page->swapped = false;
+
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+
+	if(pml4_is_dirty(thread_current()->pml4, page->va))
+	{	
+		file_write_at(file_page->file, page->frame->kva, file_page->read_bytes, file_page->offset);
+		pml4_set_dirty(thread_current()->pml4, page->va, false);
+	}
+
+	page->frame = NULL;
+	page->swapped = true;
+	pml4_clear_page(thread_current()->pml4, page->va);
+
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	struct thread *t = thread_current();
+
+	if(pml4_is_dirty(t->pml4, page->va))
+	{
+		file_write_at(file_page->file, page->va, file_page->read_bytes, file_page->offset);
+		pml4_set_dirty(t->pml4, page->va, false);
+	}
+
+	pml4_clear_page(t->pml4, page->va);
 }
 
 static bool
@@ -84,6 +122,12 @@ lazy_load_segment_by_file (struct page *page, void *aux) {
 	// stick out 조치
 	memset(page->frame->kva + page_read_bytes, 0, page_zero_bytes);
 
+	struct file_page *file_page = &page->file;
+	file_page->offset = offset;
+	file_page->read_bytes = page_read_bytes;
+	file_page->zero_bytes = page_zero_bytes;
+	file_page->file = file;
+
 	return true;
 }
 
@@ -91,16 +135,16 @@ lazy_load_segment_by_file (struct page *page, void *aux) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
-	
-	struct file *f = file_reopen(file);
-	size_t temp_length = length < file_length(f) ? length : file_length(f);
-	size_t temp_zero_length = PGSIZE - temp_length % PGSIZE;
-	// if((temp_length + temp_zero_length) % PGSIZE != 0) return NULL;
-	// if(offset % PGSIZE != 0) return NULL;
 
+	struct file *reopened_file = file_reopen(file);
+	if (file_length(reopened_file) - offset <= 0) 
+		return NULL;
+
+	size_t temp_length = length < file_length(reopened_file) ? length : file_length(reopened_file);
+	size_t temp_zero_length = PGSIZE - (temp_length % PGSIZE);
 	void * current_addr = addr;
+	file_seek(reopened_file, offset);
 
-	file_seek(file, offset);
 	while (temp_length > 0 || temp_zero_length > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -112,10 +156,12 @@ do_mmap (void *addr, size_t length, int writable,
 		if (aux == NULL)
 			return NULL;
 		
-		aux->file = f;
+		aux->file = reopened_file;
 		aux->offset = offset;
 		aux->read_bytes = page_read_bytes;
 		aux->zero_bytes = page_zero_bytes;
+		aux->has_next = temp_length > PGSIZE;
+
 
 		if( !vm_alloc_page_with_initializer(VM_FILE, current_addr, writable, lazy_load_segment_by_file, aux) ){	
 			free(aux);
@@ -126,15 +172,9 @@ do_mmap (void *addr, size_t length, int writable,
 		temp_length -= page_read_bytes;
 		temp_zero_length -= page_zero_bytes;
 		current_addr += PGSIZE;
-		/*
-			파일에서 데이터를 읽어올 때 파일 오프셋을 적절히 이동시키기 위해서이다.
-			load_segment 함수는 파일의 특정 오프셋부터 시작하여 세그먼트를 로드한다. 
-			이때 세그먼트의 크기가 페이지 크기보다 클 경우, 여러 페이지에 걸쳐서 세그먼트를 로드해야 한다.
-			각 반복마다 page_read_bytes 만큼의 데이터를 파일에서 읽어와 페이지에 로드하고,
-			이 때 파일 오프셋 ofs를 page_read_bytes 만큼 증가시켜야 다음 페이지를 로드할 때 파일의 올바른 위치에서 데이터를 읽어올 수 있다.
-		*/
-		offset += page_read_bytes;
+		offset += PGSIZE;
 	}
+
 	return addr;
 }
 
@@ -148,8 +188,10 @@ do_munmap (void *addr) {
 	if (!page)
 		return;
 	
+	bool has_next;
 	do {
+		has_next = page->file.has_next;
 		spt_remove_page(&t->spt, page);
 		addr += PGSIZE;
-	} while ((page = spt_find_page(&t->spt, addr)));
+	} while (has_next && (page = spt_find_page(&t->spt, addr)));
 }
